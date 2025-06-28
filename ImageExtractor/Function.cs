@@ -7,6 +7,7 @@ using Amazon.SQS.Model;
 using MongoDB.Bson;
 using MongoDB.Driver;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO.Compression;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -21,8 +22,6 @@ public class Function
     // Definimos o tamanho do bloco como 10% da duração total, com um mínimo de 30 segundos.
     private const double BLOCK_PERCENTAGE = 0.10;
     private const int MIN_BLOCK_DURATION_SECONDS = 30;
-
-    private const string FRAME_FILE_PATTERN = "frame_%04d.png";
     #endregion
 
     #region Propriedades e Clientes AWS
@@ -48,11 +47,18 @@ public class Function
         // Configuração do MongoDB
         var mongoSettings = CriarConfigsMongo(_config.MongoDbHost, _config.MongoDbPort, _config.MongoDbUser, _config.MongoDbPassword);
 
-        _mongoClient = new MongoClient(mongoSettings);
+        try
+        {
+            _mongoClient = new MongoClient(mongoSettings);
 
-        _database = _mongoClient.GetDatabase(_config.DatabaseName);
+            _database = _mongoClient.GetDatabase(_config.DatabaseName);
 
-        _jobsCollection = _database.GetCollection<BsonDocument>(_config.CollectionName);
+            _jobsCollection = _database.GetCollection<BsonDocument>(_config.CollectionName);
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException("Erro ao criar cliente MongoDB: " + ex.Message, ex);
+        }
     }
 
     public async Task FunctionHandler(SQSEvent sqsEvent, ILambdaContext context)
@@ -104,22 +110,20 @@ public class Function
             await TratarErroProcessamento(processingContext, ex, context);
             throw;
         }
-        finally
-        {
-            await processingContext.LimparTempAsync();
-        }
+        //finally
+        //{
+        //    //TODO: LIMPAR S3?
+        //}
     }
 
     private async Task ExecutarProcessamento(MensagemSQS message, ContextoProcessamento context, ILambdaContext lambdaContext)
     {
         // Etapa 1: Download do vídeo
-        if (context.CurrentStep <= EtapaProcessamento.BaixandoVideo)
+        if (context.CurrentStep <= EtapaProcessamento.BaixandoVideo || context.CurrentStep == EtapaProcessamento.AnalisandoVideo || context.CurrentStep == EtapaProcessamento.ExtraindoFrames)
         {
             await ExecutarEtapa(EtapaProcessamento.BaixandoVideo, context, lambdaContext, async () =>
             {
                 context.VideoDownloadPath = await BaixarVideoS3(context.S3Bucket, context.S3Key, context.VideoId, lambdaContext);
-
-                context.AddArquivoTemp(context.VideoDownloadPath);
 
                 // Atualiza o status no MongoDB para RUNNING se for a primeira vez
                 await SalvarEstadoDB(context, EtapaProcessamento.BaixandoVideo, JobStatus.Executando, lambdaContext);
@@ -161,7 +165,6 @@ public class Function
             }
 
             context.FramesOutputDir = CriarPastaFrames(context.VideoId);
-            context.AddArquivoTemp(context.FramesOutputDir); // Adiciona o diretório de frames para limpeza no final
 
             // Lógica de extração de frames granular
             await ExtrairFramesPorBloco(context, lambdaContext);
@@ -244,7 +247,7 @@ public class Function
     private MongoClientSettings CriarConfigsMongo(string host, int port, string user, string password)
     {
         // Construção da connection string do MongoDB
-        var connectionString = $"mongodb://{user}:{password}@{host}:{port}/{_config.DatabaseName}?authSource=admin"; // TODO: Verificar se authSource é necessário
+        var connectionString = $"mongodb+srv://{user}:{password}@{host}/{_config.DatabaseName}";
         var settings = MongoClientSettings.FromConnectionString(connectionString);
 
         // Configurações otimizadas para Lambda
@@ -287,7 +290,7 @@ public class Function
 
     private void ValidarFFmpeg()
     {
-        if (!File.Exists("./ffprobe") || !File.Exists("./ffmpeg"))
+        if (!File.Exists("/opt/bin/ffprobe") || !File.Exists("/opt/bin/ffmpeg"))
         {
             throw new FileNotFoundException("Binários FFmpeg não encontrados no diretório de execução. Verifique se foram incluídos no pacote de deploy.");
         }
@@ -343,28 +346,31 @@ public class Function
         return downloadPath;
     }
 
-    private async Task EnviarFramesBucket(string localPath, string s3Prefix, ILambdaContext context)
+    private async Task EnviarFramesBucket(string[] frameFiles, string s3Prefix, ILambdaContext context)
     {
-        var frameFiles = Directory.GetFiles(localPath, "*.png");
-
-        if (frameFiles.Length == 0)
+        if (frameFiles == null || frameFiles.Length == 0)
         {
-            throw new FileNotFoundException($"Nenhum frame encontrado para upload no diretório: {localPath}");
+            context.Logger.LogLine("AVISO: Nenhum frame encontrado para upload neste bloco");
+            return;
         }
 
-        context.Logger.LogLine($"Iniciando upload de {frameFiles.Length} frames do diretório: {localPath}");
+        context.Logger.LogLine($"Iniciando upload de {frameFiles.Length} frames para S3 (bucket: {_config.FramesBucket}, prefix: {s3Prefix})");
 
         // Upload paralelo com controle de concorrência
-        var semaphore = new SemaphoreSlim(5, 5); // Limita a 5 uploads simultâneos
+        var semaphore = new SemaphoreSlim(5, 5);
+        var uploadedCount = 0;
+        var startTime = DateTime.UtcNow;
 
         var uploadTasks = frameFiles.Select(async filePath =>
         {
             await semaphore.WaitAsync();
-
             try
             {
                 var fileName = Path.GetFileName(filePath);
                 var key = $"{s3Prefix}{fileName}";
+                var fileSize = new FileInfo(filePath).Length;
+
+                context.Logger.LogLine($"Enviando frame: {fileName} ({fileSize} bytes)");
 
                 await _s3Client.PutObjectAsync(new PutObjectRequest
                 {
@@ -372,6 +378,15 @@ public class Function
                     Key = key,
                     FilePath = filePath
                 });
+
+                Interlocked.Increment(ref uploadedCount);
+                context.Logger.LogLine($"Frame enviado com sucesso: {fileName} (S3 key: {key})");
+            }
+            catch (Exception ex)
+            {
+                var fileName = Path.GetFileName(filePath);
+                context.Logger.LogLine($"ERRO ao enviar frame {fileName}: {ex.Message}");
+                throw;
             }
             finally
             {
@@ -380,18 +395,24 @@ public class Function
         });
 
         await Task.WhenAll(uploadTasks);
-        context.Logger.LogLine($"Upload concluído: {frameFiles.Length} frames");
-    }
 
+        var elapsed = DateTime.UtcNow - startTime;
+        context.Logger.LogLine($"SUCESSO: Upload concluído! {uploadedCount}/{frameFiles.Length} frames enviados em {elapsed.TotalSeconds:F1}s");
+    }
     #endregion
 
     #region Métodos FFmpeg
     private static async Task<(int durationSeconds, int totalFrames)> ObterQuantidadeFramesVideo(string videoPath, ILambdaContext context)
     {
+        if (string.IsNullOrWhiteSpace(videoPath))
+            throw new ArgumentException("Caminho do vídeo inválido", nameof(videoPath));
+
+        context.Logger.LogLine($"Extraindo duração do vídeo: {videoPath}");
+
         var processInfo = new ProcessStartInfo
         {
-            FileName = "./ffprobe",
-            Arguments = $"-v quiet -print_format json -show_format -show_streams \"{videoPath}\"",
+            FileName = "/opt/bin/ffprobe",
+            Arguments = $"-v quiet -print_format json -show_format \"{videoPath}\"",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -399,61 +420,43 @@ public class Function
         };
 
         using var process = new Process { StartInfo = processInfo };
-        process.Start();
 
+        process.Start();
         var outputTask = process.StandardOutput.ReadToEndAsync();
         var errorTask = process.StandardError.ReadToEndAsync();
 
-        await process.WaitForExitAsync();
+        // Timeout de 60s
+        var processTask = process.WaitForExitAsync();
+        if (await Task.WhenAny(processTask, Task.Delay(60000)) != processTask)
+        {
+            context.Logger.LogLine("ERRO: FFprobe timeout");
+            process.Kill();
+            throw new TimeoutException("FFprobe timeout");
+        }
 
         if (process.ExitCode != 0)
         {
             var error = await errorTask;
-            throw new Exception($"FFprobe falhou (exit code {process.ExitCode}): {error}");
+            context.Logger.LogLine($"ERRO: FFprobe falhou: {error}");
+            throw new Exception($"FFprobe falhou: {error}");
         }
 
         var output = await outputTask;
         var metadata = JsonSerializer.Deserialize<JsonElement>(output);
 
-        int durationSeconds = 0;
-        int totalFrames = 0;
-
-        if (metadata.TryGetProperty("format", out var format) &&
-            format.TryGetProperty("duration", out var durationElement))
+        // Extrair apenas a duração
+        if (!metadata.TryGetProperty("format", out var format) ||
+            !format.TryGetProperty("duration", out var durationElement) ||
+            !double.TryParse(durationElement.GetString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var duration))
         {
-            durationSeconds = (int)Math.Ceiling(durationElement.GetDouble());
-        }
-        else
-        {
-            throw new Exception("Não foi possível determinar a duração do vídeo.");
+            context.Logger.LogLine("ERRO: Não foi possível extrair duração");
+            throw new Exception("Não foi possível obter duração do vídeo");
         }
 
-        if (metadata.TryGetProperty("streams", out var streams))
-        {
-            foreach (var stream in streams.EnumerateArray())
-            {
-                if (stream.TryGetProperty("codec_type", out var codecType) && codecType.GetString() == "video")
-                {
-                    if (stream.TryGetProperty("nb_frames", out var nbFramesElement))
-                    {
-                        if (int.TryParse(nbFramesElement.GetString(), out totalFrames))
-                        {
-                            break; // Encontrou o stream de vídeo e o número de frames
-                        }
-                    }
-                }
-            }
-        }
+        var durationSeconds = (int)Math.Ceiling(duration);
+        var totalFrames = durationSeconds; // 1 frame por segundo
 
-        // Fallback para totalFrames se nb_frames não estiver disponível
-        if (totalFrames == 0 && durationSeconds > 0)
-        {
-            // Assume 1 frame por segundo se não conseguir extrair o nb_frames
-            totalFrames = durationSeconds;
-            context.Logger.LogLine("Aviso: 'nb_frames' não encontrado, estimando total de frames como duração em segundos.");
-        }
-
-        context.Logger.LogLine($"Duração do vídeo: {durationSeconds} segundos, Total de frames: {totalFrames}");
+        context.Logger.LogLine($"Duração: {duration:F2}s ? {durationSeconds}s, Frames: {totalFrames} (1 fps)");
         return (durationSeconds, totalFrames);
     }
 
@@ -469,24 +472,25 @@ public class Function
 
         lambdaContext.Logger.LogLine($"Extraindo frames em {context.TotalBlocks} blocos de aproximadamente {blockDuration} segundos cada.");
 
-        int startSecond = context.LastProcessedSecond; // Retoma do último segundo processado
+        int startSecond = context.LastProcessedSecond;
 
         for (int i = 0; i < context.TotalBlocks; i++)
         {
-            context.CurrentBlock = i + 1; // Bloco atual (base 1)
+            context.CurrentBlock = i + 1;
             int blockStartSecond = startSecond;
             int blockEndSecond = Math.Min(context.TotalVideoDurationSeconds, startSecond + blockDuration);
 
-            // Se for a primeira execução do bloco, ou se o bloco anterior não foi concluído
             if (context.LastProcessedSecond <= blockStartSecond)
             {
-                lambdaContext.Logger.LogLine($"Iniciando processamento do Bloco {context.CurrentBlock}/{context.TotalBlocks}: Segundos {blockStartSecond}-{blockEndSecond}");
+                lambdaContext.Logger.LogLine($"Iniciando Bloco {context.CurrentBlock}/{context.TotalBlocks}: Segundos {blockStartSecond}-{blockEndSecond}");
 
-                // Comando FFmpeg para extrair frames de um intervalo específico
+                // Padrão: frame_bloco_segundo.png (ex: frame_001_045.png)
+                var framePattern = $"frame_{context.CurrentBlock:D3}_%03d.png";
+
                 var processInfo = new ProcessStartInfo
                 {
-                    FileName = "./ffmpeg",
-                    Arguments = $"-threads 0 -hwaccel auto -ss {blockStartSecond} -i \"{context.VideoDownloadPath}\" -to {blockEndSecond - blockStartSecond} -vf fps=1 -q:v 5 -f image2 -y \"{context.FramesOutputDir}/{FRAME_FILE_PATTERN}\"",
+                    FileName = "/opt/bin/ffmpeg",
+                    Arguments = $"-threads 0 -hwaccel auto -ss {blockStartSecond} -i \"{context.VideoDownloadPath}\" -t {blockEndSecond - blockStartSecond} -vf fps=1 -start_number {blockStartSecond} -q:v 5 -f image2 -y \"{context.FramesOutputDir}/{framePattern}\"",
                     RedirectStandardError = true,
                     UseShellExecute = false,
                     CreateNoWindow = true
@@ -520,42 +524,29 @@ public class Function
                 lambdaContext.Logger.LogLine($"Bloco {context.CurrentBlock} já processado, pulando.");
             }
 
-            // Após a extração do bloco, faz o upload dos frames gerados em um subdiretório específico do bloco
-            var s3Prefix = $"{context.CognitoUserId}/{context.VideoId}/block_{context.CurrentBlock}/";
-            var blockFramesDir = Path.Combine(context.FramesOutputDir, $"block_{context.CurrentBlock}");
+            // Upload direto dos frames do bloco atual (sem subpastas)
+            var s3Prefix = $"{context.CognitoUserId}/{context.VideoId}/";
+            var blockFramePattern = $"frame_{context.CurrentBlock:D3}_*.png";
+            var blockFrames = Directory.GetFiles(context.FramesOutputDir, blockFramePattern);
 
-            if (!Directory.Exists(blockFramesDir))
+            if (blockFrames.Length > 0)
             {
-                Directory.CreateDirectory(blockFramesDir);
+                await EnviarFramesBucket(blockFrames, s3Prefix, lambdaContext);
             }
 
-            // Mover os frames do diretório principal para o subdiretório do bloco
-            foreach (var frameFile in Directory.GetFiles(context.FramesOutputDir, "*.png"))
-            {
-                var fileName = Path.GetFileName(frameFile);
-                File.Move(frameFile, Path.Combine(blockFramesDir, fileName));
-            }
-
-            await EnviarFramesBucket(blockFramesDir, s3Prefix, lambdaContext);
-
-            context.AddArquivoTemp(blockFramesDir); // Adiciona a pasta do bloco para limpeza no final
-
-            // Atualiza o progresso no contexto
+            // Atualiza o progresso
             context.LastProcessedSecond = blockEndSecond;
-            context.ProcessedFrames += Directory.GetFiles(blockFramesDir, "*.png").Length; // Atualiza com os frames do bloco
+            context.ProcessedFrames += blockFrames.Length;
 
-            // Envia mensagem de progresso para a fila de progresso
+            // Envia progresso e salva estado
             await EnviarMensagemProgresso(context, lambdaContext);
-
-            // Atualiza o estado no MongoDB após cada bloco
             await SalvarEstadoDB(context, EtapaProcessamento.ExtraindoFrames, JobStatus.Executando, lambdaContext);
 
-            startSecond = blockEndSecond + 1; // Opa, comece do segundo seguinte do segundo final do bloco atual
+            startSecond = blockEndSecond;
         }
 
-        lambdaContext.Logger.LogLine($"Extração de frames concluída para todos os blocos. Total de frames extraídos: {context.ProcessedFrames}");
+        lambdaContext.Logger.LogLine($"Extração concluída. Total de frames: {context.ProcessedFrames}");
     }
-
     #endregion
 
     #region Métodos do MongoDB
@@ -729,7 +720,6 @@ public class Function
     private async Task<string> CriarEnviarZip(ContextoProcessamento context, ILambdaContext lambdaContext)
     {
         var zipPath = Path.Combine(Path.GetTempPath(), $"{context.VideoId}_{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}.zip");
-        context.AddArquivoTemp(zipPath);
 
         lambdaContext.Logger.LogLine($"Iniciando criação do ZIP em: {zipPath}");
 
@@ -883,12 +873,10 @@ public class Function
         public string ZipPath { get; set; } = string.Empty;
         public int TotalFrames { get; set; }
         public int TotalVideoDurationSeconds { get; set; }
-        public int LastProcessedSecond { get; set; } = 0; // Novo campo para retomar
-        public int CurrentBlock { get; set; } = 0; // Novo campo
-        public int TotalBlocks { get; set; } = 0; // Novo campo
-        public int ProcessedFrames { get; set; } = 0; // Novo campo para controle de progresso
-
-        private readonly List<string> _tempFilesToCleanup = new();
+        public int LastProcessedSecond { get; set; } = 0;
+        public int CurrentBlock { get; set; } = 0;
+        public int TotalBlocks { get; set; } = 0;
+        public int ProcessedFrames { get; set; } = 0;
 
         public void InicializarContexto(MensagemSQS message)
         {
@@ -896,40 +884,6 @@ public class Function
             CognitoUserId = message.CognitoUserId;
             S3Bucket = message.Bucket;
             S3Key = message.Key;
-        }
-
-        public void AddArquivoTemp(string path)
-        {
-            if (!string.IsNullOrEmpty(path))
-            {
-                _tempFilesToCleanup.Add(path);
-            }
-        }
-
-        public async Task LimparTempAsync()
-        {
-            var cleanupTasks = _tempFilesToCleanup.Select(static async path =>
-            {
-                await Task.CompletedTask;
-
-                try
-                {
-                    if (File.Exists(path))
-                    {
-                        File.Delete(path);
-                    }
-                    else if (Directory.Exists(path))
-                    {
-                        Directory.Delete(path, true);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Aviso: Falha na limpeza de {path}: {ex.Message}");
-                }
-            });
-
-            await Task.WhenAll(cleanupTasks);
         }
     }
 

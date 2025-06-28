@@ -1,0 +1,114 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: mazy-video-tools-image-extractor
+
+Parameters:
+  ProgressQueueUrl:
+    Type: String
+    Description: URL da fila SQS para onde as mensagens de progresso e conclusão do job serão enviadas
+  MongoDbHost:
+    Type: String
+    Description: Hostname ou endereço IP do seu cluster MongoDB/DocumentDB
+
+  MongoDbPort:
+    Type: String
+    Description: Porta do seu cluster MongoDB/DocumentDB
+
+  MongoDbUser:
+    Type: String
+    Description: Usuário para autenticação no MongoDB/DocumentDB
+
+  MongoDbPassword:
+    Type: String
+    Description: Senha para autenticação no MongoDB/DocumentDB
+    NoEcho: true
+
+  DatabaseName:
+    Type: String
+    Description: Nome do banco de dados no MongoDB/DocumentDB para persistência do job
+    Default: mazy-video-tools
+
+  CollectionName:
+    Type: String
+    Description: Nome da coleção no MongoDB/DocumentDB para os documentos de job
+    Default: video-jobs
+
+  VpcSubnets:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: VPC subnet IDs for Lambda functions
+
+  VpcSecurityGroups:
+    Type: List<AWS::EC2::SecurityGroup::Id>
+    Description: VPC security group IDs for Lambda functions
+
+Globals:
+  Function:
+    Timeout: 300
+    MemorySize: 1024
+
+Resources:
+  InboundVideoQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: mazy-video-tools-inbound-video-queue
+      VisibilityTimeout: 300
+
+  FramesBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: mazy-video-tools-frames-e3b0245
+
+  ZipBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: mazy-video-tools-zip-e3b3245
+
+  FfmpegLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: ffmpeg-layer
+      Description: Layer contendo o binário estático do FFMPEG
+      ContentUri: ffmpeg-layer/
+      CompatibleRuntimes:
+      - dotnet8
+
+  VideoExtractorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: mazy-video-tools-image-extractor
+      Runtime: dotnet8
+      Handler: ImageExtractor::ImageExtractor.Function::FunctionHandler
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/LabRole
+      VpcConfig:
+        SubnetIds: !Ref VpcSubnets
+        SecurityGroupIds: !Ref VpcSecurityGroups
+      CodeUri: ImageExtractor/
+      Layers:
+      - !Ref FfmpegLayer
+      Policies:
+      - AWSLambdaBasicExecutionRole
+      - Statement:
+          Effect: Allow
+          Action:
+          - s3:GetObject
+          Resource: !Sub arn:aws:s3:::${S3Bucket}/*
+      Events:
+        VideoSQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt InboundVideoQueue.Arn
+      Environment:
+        Variables:
+          FRAMES_BUCKET_NAME: !Ref FramesBucket
+          ZIP_BUCKET_NAME: !Ref ZipBucket
+          PROGRESS_QUEUE_URL: !Ref ProgressQueueUrl
+          MONGO_DB_HOST: !Ref MongoDbHost
+          MONGO_DB_PORT: !Ref MongoDbPort
+          MONGO_DB_USER: !Ref MongoDbUser
+          MONGO_DB_PASSWORD: !Ref MongoDbPassword
+          DATABASE_NAME: !Ref DatabaseName
+          COLLECTION_NAME: !Ref CollectionName
+Outputs:
+  QueueUrl:
+    Description: URL da fila SQS de entrada
+    Value: !Ref InboundVideoQueue

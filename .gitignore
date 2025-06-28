@@ -1,5 +1,5 @@
-# Created by https://www.toptal.com/developers/gitignore/api/visualstudio,visualstudiocode,csharp,aspnetcore,dotnetcore,rider,git,sonar,sonarqube
-# Edit at https://www.toptal.com/developers/gitignore?templates=visualstudio,visualstudiocode,csharp,aspnetcore,dotnetcore,rider,git,sonar,sonarqube
+# Created by https://www.toptal.com/developers/gitignore/api/git,rider,sonar,csharp,sonarqube,aspnetcore,dotnetcore,visualstudio,visualstudiocode,sam,sam+config
+# Edit at https://www.toptal.com/developers/gitignore?templates=git,rider,sonar,csharp,sonarqube,aspnetcore,dotnetcore,visualstudio,visualstudiocode,sam,sam+config
 
 ### ASPNETCore ###
 ## Ignore Visual Studio temporary files, build results, and
@@ -626,6 +626,23 @@ fabric.properties
 # Android studio 3.1+ serialized cache file
 .idea/caches/build_file_checksums.ser
 
+### SAM ###
+# Ignore build directories for the AWS Serverless Application Model (SAM)
+# Info: https://aws.amazon.com/serverless/sam/
+# Docs: https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-sam-reference.html
+
+**/.aws-sam
+
+### SAM+config ###
+# Ignore build directories for the AWS Serverless Application Model (SAM)
+# Info: https://aws.amazon.com/serverless/sam/
+# Docs: https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-sam-reference.html
+
+
+### SAM+config Patch ###
+# SAM config - exclude this file if sharing publicly
+samconfig.toml
+
 ### Sonar ###
 #Sonar generated dir
 /.sonar/
@@ -837,4 +854,4 @@ fabric.properties
 ### VisualStudio Patch ###
 # Additional files built by Visual Studio
 
-# End of https://www.toptal.com/developers/gitignore/api/visualstudio,visualstudiocode,csharp,aspnetcore,dotnetcore,rider,git,sonar,sonarqube
+# End of https://www.toptal.com/developers/gitignore/api/git,rider,sonar,csharp,sonarqube,aspnetcore,dotnetcore,visualstudio,visualstudiocode,sam,sam+config
