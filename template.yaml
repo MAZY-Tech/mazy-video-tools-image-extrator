@@ -47,11 +47,14 @@ Globals:
     MemorySize: 1024
 
 Resources:
-  InboundVideoQueue:
+  InboundQueue:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: mazy-video-tools-inbound-video-queue
+      QueueName: mazy-video-tools-inbound
       VisibilityTimeout: 300
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt InboundDeadLetterQueue.Arn
+        maxReceiveCount: 5
 
   FramesBucket:
     Type: AWS::S3::Bucket
@@ -62,6 +65,12 @@ Resources:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: mazy-video-tools-zip-e3b3245
+      
+  InboundDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: mazy-video-tools-inbound-dlq
+      MessageRetentionPeriod: 1209600
 
   FfmpegLayer:
     Type: AWS::Serverless::LayerVersion
@@ -96,7 +105,8 @@ Resources:
         VideoSQSEvent:
           Type: SQS
           Properties:
-            Queue: !GetAtt InboundVideoQueue.Arn
+            Queue: !GetAtt InboundQueue.Arn
+            BatchSize: 1
       Environment:
         Variables:
           FRAMES_BUCKET_NAME: !Ref FramesBucket
@@ -108,7 +118,8 @@ Resources:
           MONGO_DB_PASSWORD: !Ref MongoDbPassword
           DATABASE_NAME: !Ref DatabaseName
           COLLECTION_NAME: !Ref CollectionName
+
 Outputs:
   QueueUrl:
     Description: URL da fila SQS de entrada
-    Value: !Ref InboundVideoQueue
+    Value: !Ref InboundQueue
