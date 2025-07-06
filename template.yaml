@@ -3,43 +3,43 @@ Transform: AWS::Serverless-2016-10-31
 Description: mazy-video-tools-image-extractor
 
 Parameters:
+  VpcSubnets:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: VPC subnet IDs for Lambda functions
+  VpcSecurityGroups:
+    Type: List<AWS::EC2::SecurityGroup::Id>
+    Description: VPC security group IDs for Lambda functions
+
   ProgressQueueUrl:
     Type: String
     Description: URL da fila SQS para onde as mensagens de progresso e conclusão do job serão enviadas
-  MongoDbHost:
-    Type: String
-    Description: Hostname ou endereço IP do seu cluster MongoDB/DocumentDB
 
-  MongoDbPort:
+  DatabaseHost:
     Type: String
-    Description: Porta do seu cluster MongoDB/DocumentDB
+    Description: Hostname ou endereço IP do seu cluster MongoDB
 
-  MongoDbUser:
+  DatabasePort:
     Type: String
-    Description: Usuário para autenticação no MongoDB/DocumentDB
+    Description: Porta do seu cluster MongoDB
 
-  MongoDbPassword:
+  DatabaseUser:
     Type: String
-    Description: Senha para autenticação no MongoDB/DocumentDB
+    Description: Usuário para autenticação no MongoDB
+
+  DatabasePassword:
+    Type: String
+    Description: Senha para autenticação no MongoDB
     NoEcho: true
 
   DatabaseName:
     Type: String
-    Description: Nome do banco de dados no MongoDB/DocumentDB para persistência do job
-    Default: mazy-video-tools
+    Description: Nome do banco de dados no MongoDB para persistência do job
+    Default: mazy_video_tools_image_extractor
 
   CollectionName:
     Type: String
-    Description: Nome da coleção no MongoDB/DocumentDB para os documentos de job
-    Default: video-jobs
-
-  VpcSubnets:
-    Type: List<AWS::EC2::Subnet::Id>
-    Description: VPC subnet IDs for Lambda functions
-
-  VpcSecurityGroups:
-    Type: List<AWS::EC2::SecurityGroup::Id>
-    Description: VPC security group IDs for Lambda functions
+    Description: Nome da coleção no MongoDB para os documentos de job
+    Default: video_jobs
 
 Globals:
   Function:
@@ -112,10 +112,10 @@ Resources:
           FRAMES_BUCKET_NAME: !Ref FramesBucket
           ZIP_BUCKET_NAME: !Ref ZipBucket
           PROGRESS_QUEUE_URL: !Ref ProgressQueueUrl
-          MONGO_DB_HOST: !Ref MongoDbHost
-          MONGO_DB_PORT: !Ref MongoDbPort
-          MONGO_DB_USER: !Ref MongoDbUser
-          MONGO_DB_PASSWORD: !Ref MongoDbPassword
+          MONGO_DB_HOST: !Ref DatabaseHost
+          MONGO_DB_PORT: !Ref DatabasePort
+          MONGO_DB_USER: !Ref DatabaseUser
+          MONGO_DB_PASSWORD: !Ref DatabasePassword
           DATABASE_NAME: !Ref DatabaseName
           COLLECTION_NAME: !Ref CollectionName
 
