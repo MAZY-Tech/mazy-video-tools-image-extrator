@@ -34,7 +34,7 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
 
       - name: Build SAM Application
-        run: sam build --use-container
+        run: sam build --use-container --mount-with WRITE
 
       - name: Deploy SAM Application
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
