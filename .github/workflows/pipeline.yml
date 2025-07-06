@@ -1,0 +1,59 @@
+name: Deploy .NET Lambda with AWS SAM
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    name: Build and Deploy SAM Application
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.x'
+
+      - name: Set up AWS SAM CLI
+        uses: aws-actions/setup-sam@v2
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Build SAM Application
+        run: sam build --use-container --mount-with WRITE
+
+      - name: Deploy SAM Application
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+        run: |
+          sam deploy \
+            --stack-name ${{ vars.SAM_STACK_NAME }} \
+            --s3-prefix ${{ vars.SAM_S3_PREFIX }} \
+            --region ${{ vars.AWS_REGION }} \
+            --capabilities CAPABILITY_IAM \
+            --no-confirm-changeset \
+            --resolve-s3 \
+            --parameter-overrides \
+              VpcSubnets='${{ vars.VPC_SUBNETS }}' \
+              VpcSecurityGroups='${{ vars.VPC_SECURITY_GROUPS }}' \
+              ProgressQueueUrl='${{ vars.PROGRESS_QUEUE_URL }}' \
+              DatabaseHost='${{ vars.DATABASE_HOST }}' \
+              DatabasePort='${{ vars.DATABASE_PORT }}' \
+              DatabaseUser='${{ vars.DATABASE_USER }}' \
+              DatabasePassword='${{ secrets.DATABASE_PASSWORD }}' \
+              DatabaseName='${{ vars.DATABASE_NAME }}' \
+              CollectionName='${{ vars.COLLECTION_NAME }}' \
+              S3Bucket='${{ vars.S3_BUCKET }}'
