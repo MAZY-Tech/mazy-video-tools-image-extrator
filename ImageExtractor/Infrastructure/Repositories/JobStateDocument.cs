@@ -1,6 +1,8 @@
 ﻿using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 
+namespace ImageExtractor.Infrastructure.Repositories;
+
 public class JobStateDocument
 {
     [BsonId]

@@ -1,4 +1,5 @@
-﻿using MongoDB.Bson;
+﻿using ImageExtractor.Infrastructure.Repositories;
+using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
 
 namespace ImageExtractor.Tests;
