@@ -1,114 +1,119 @@
-# AWS Lambda de ExtraÁ„o e CompactaÁ„o de Frames de VÌdeo
+# mazy-video-tools-image-extractor
 
-Este projeto AWS Lambda È uma funÁ„o robusta e tolerante a falhas, projetada para processar mensagens SQS contendo informaÁıes de vÌdeos, extrair frames em blocos, compact·-los em um arquivo ZIP e gerenciar o progresso e o estado do trabalho em um banco de dados MongoDB.
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=MAZY-Tech_mazy-video-tools-image-extrator&metric=coverage)](https://sonarcloud.io/summary/new_code?id=MAZY-Tech_mazy-video-tools-image-extrator)
+[![Lines of Code](https://sonarcloud.io/api/project_badges/measure?project=MAZY-Tech_mazy-video-tools-image-extrator&metric=ncloc)](https://sonarcloud.io/summary/new_code?id=MAZY-Tech_mazy-video-tools-image-extrator)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=MAZY-Tech_mazy-video-tools-image-extrator&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=MAZY-Tech_mazy-video-tools-image-extrator)
 
-## Vis„o Geral do Projeto
+Este projeto oferece uma fun√ß√£o AWS Lambda robusta e resiliente para processar mensagens SQS descrevendo v√≠deos. A fun√ß√£o extrai frames em blocos, compacta em um arquivo ZIP e gerencia o estado da tarefa em um banco MongoDB.
 
-A funÁ„o `ImageExtractor` È acionada por mensagens em uma fila SQS. Para cada mensagem, ela executa as seguintes etapas:
+---
 
-1.  **ValidaÁ„o e InicializaÁ„o**: Carrega as configuraÁıes do ambiente e valida a mensagem SQS recebida.
-    
-2.  **Download do VÌdeo**: Baixa o arquivo de vÌdeo original de um bucket S3.
-    
-3.  **An·lise do VÌdeo**: Utiliza o `ffprobe` para determinar a duraÁ„o total e o n˙mero de frames do vÌdeo.
-    
-4.  **ExtraÁ„o de Frames em Blocos**:
-    
-    -   Divide o vÌdeo em blocos menores (ex: 10% da duraÁ„o total, mÌnimo de 30 segundos).
-        
-    -   Para cada bloco, utiliza o `ffmpeg` para extrair frames individualmente.
-        
-    -   Faz o upload desses frames para um bucket S3 de destino, organizando-os por ID de vÌdeo e n˙mero do bloco.
-        
-    -   Atualiza o progresso do job no MongoDB e envia mensagens de progresso para uma fila SQS dedicada.
-        
-    -   Possui lÛgica de retomada (`LastProcessedSecond`, `CurrentBlock`) para continuar o processamento de onde parou em caso de interrupÁ„o ou falha.
-        
-5.  **CriaÁ„o e Upload do ZIP**: ApÛs todos os frames serem extraÌdos e enviados, os frames s„o recuperados do S3 e compactados em um arquivo ZIP. O ZIP final È ent„o enviado para um bucket S3 de destino.
-    
-6.  **Conclus„o**: Marca o job como `COMPLETED` no MongoDB e envia uma mensagem de conclus„o para a fila de progresso SQS.
-    
+## Vis√£o Geral
 
-A funÁ„o È projetada para ser idempotente, garantindo que o reprocessamento de mensagens SQS n„o duplique o trabalho j· concluÌdo e que falhas sejam gerenciadas via Dead Letter Queue (DLQ) do SQS para retentativas.
+A fun√ß√£o `ImageExtractor` √© acionada por mensagens em uma fila SQS. Para cada mensagem, ela executa:
 
-## Tecnologias Chave
+1. **Valida√ß√£o e Inicializa√ß√£o**
 
--   **AWS Lambda**: Plataforma de computaÁ„o serverless.
-    
--   **Amazon SQS**: ServiÁo de fila de mensagens para acionamento e comunicaÁ„o de progresso.
-    
--   **Amazon S3**: Armazenamento de objetos para vÌdeos de entrada, frames extraÌdos e arquivos ZIP finais.
-    
--   **MongoDB (ou compatÌvel como Amazon DocumentDB)**: Banco de dados NoSQL para persistir o estado e o progresso de cada job.
-    
--   **FFmpeg/FFprobe**: Ferramentas de linha de comando para processamento de ·udio/vÌdeo, empacotadas com a Lambda.
-    
--   **.NET 8 (ou superior)**: Framework para o desenvolvimento da funÁ„o.
-    
+   * L√™ vari√°veis de ambiente (ex.: conex√£o MongoDB, buckets S3).
+   * Valida a estrutura da mensagem recebida.
 
-## PrÈ-requisitos
+2. **Download do V√≠deo**
 
-Para construir e implantar este projeto, vocÍ precisar·:
+   * Baixa o arquivo de v√≠deo de um bucket S3 de origem.
 
--   [**.NET SDK 8.0 (ou superior)**](https://dotnet.microsoft.com/download "null")
-    
--   **AWS CLI**
-    
--   **Amazon.Lambda.Tools Global Tool**
-    
--   **Bin·rios FFmpeg e FFprobe** compilados para Linux.
-    
--   **Uma inst‚ncia MongoDB/DocumentDB**.
-    
--   **Buckets S3** (entrada, frames, zips).
-    
--   **Filas SQS** (principal e de progresso).
-    
+3. **An√°lise do V√≠deo**
 
+   * Usa `ffprobe` para obter dura√ß√£o total e contagem de frames.
 
-## ConfiguraÁ„o (Vari·veis de Ambiente)
+4. **Extra√ß√£o de Frames em Blocos**
 
-A funÁ„o Lambda utiliza as seguintes vari·veis de ambiente. Elas devem ser configuradas na sua funÁ„o Lambda na AWS:
+   * Segmenta o v√≠deo em blocos menores (ex.: 30s).
+   * Usa `ffmpeg` para extrair frames de cada bloco.
+   * Envia os frames para um bucket S3, organizados por ID de v√≠deo e bloco.
+   * Atualiza o progresso no MongoDB e envia mensagens de atualiza√ß√£o para outra fila SQS.
+   * Implementa retomada autom√°tica em caso de falha, com base em `LastProcessedSecond` e `CurrentBlock`.
 
-| Vari·vel | DescriÁ„o | Exemplo de Valor |
-| :--- | :--- | :--- |
-| `FRAMES_BUCKET_NAME` | Nome do bucket S3 onde os frames ser„o temporariamente armazenados. | `my-video-frames-bucket` |
-| `ZIP_BUCKET_NAME` | Nome do bucket S3 onde os arquivos ZIP finais ser„o armazenados. | `my-video-zips-bucket` |
-| `PROGRESS_QUEUE_URL` | URL da fila SQS para onde as mensagens de progresso e conclus„o do job ser„o enviadas. | `https://sqs.us-east-1.amazonaws.com/123456789012/MyProgressQueue` |
-| `MONGO_DB_HOST` | Hostname ou endereÁo IP do seu cluster MongoDB/DocumentDB. | `docdb-xxxx.cluster-abcdefghij.us-east-1.docdb.amazonaws.com` |
-| `MONGO_DB_PORT` | Porta do seu cluster MongoDB/DocumentDB. | `27017` |
-| `MONGO_DB_USER` | Usu·rio para autenticaÁ„o no MongoDB/DocumentDB. | `lambdauser` |
-| `MONGO_DB_PASSWORD` | Senha para autenticaÁ„o no MongoDB/DocumentDB. | `mySecurePassword123` |
-| `DATABASE_NAME` | Nome do banco de dados no MongoDB/DocumentDB para persistÍncia do job. | `video_processing` |
-| `COLLECTION_NAME` | Nome da coleÁ„o no MongoDB/DocumentDB para os documentos de job. | `jobs` |
-  
-## Uso e Estruturas de Dados
+5. **Cria√ß√£o e Upload do ZIP**
 
-Para iniciar um processo, publique uma mensagem na fila SQS principal. A funÁ„o ir· ent„o interagir com a fila de progresso e o MongoDB usando as seguintes estruturas.
+   * Ap√≥s a extra√ß√£o completa, compacta os frames em um .zip e faz upload no bucket S3 designado.
 
-### Fila SQS de Entrada (Ex: `incoming-queue`)
+6. **Finaliza√ß√£o**
 
-Esta È a mensagem que dispara a execuÁ„o da Lambda. Ela corresponde ‡ classe `MensagemSQS` no cÛdigo.
+   * Marca o job como `COMPLETED` no MongoDB.
+   * Envia mensagem final de conclus√£o para a fila de progresso.
 
-```
+A fun√ß√£o √© idempotente, prevenindo reprocessamento desnecess√°rio, e redireciona falhas para uma **Dead Letter Queue (DLQ)** do SQS.
+
+---
+
+## Tecnologias-Chave
+
+* **AWS Lambda** ‚Äì Execu√ß√£o serverless.
+* **Amazon SQS** ‚Äì Fila principal de entrada e fila de progresso.
+* **Amazon S3** ‚Äì Armazena v√≠deos, frames extra√≠dos e arquivos ZIP.
+* **MongoDB/DocumentDB** ‚Äì Armazena o estado do processamento.
+* **FFmpeg/FFprobe** ‚Äì Ferramentas para an√°lise e extra√ß√£o de frames.
+* **.NET 8** ‚Äì Plataforma de desenvolvimento.
+
+---
+
+## Pr√©-requisitos
+
+1. [**.NET SDK 8**](https://dotnet.microsoft.com/download)
+2. **AWS CLI**
+3. **Amazon.Lambda.Tools** (global ou local)
+4. **FFmpeg** e **FFprobe** para Linux (empacotados com a Lambda)
+5. **Inst√¢ncia MongoDB/DocumentDB**
+6. **Buckets S3** para entrada, frames e sa√≠da
+7. **Filas SQS** (principal e de progresso)
+
+---
+
+## Vari√°veis de Ambiente
+
+Configure as vari√°veis na fun√ß√£o Lambda:
+
+| Vari√°vel             | Descri√ß√£o                                                  | Exemplo de Valor                                                   |
+| -------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------ |
+| **Obrigat√≥rias**     |                                                            |                                                                    |
+| `SENTRY_DSN`         | DSN para relat√≥rio de erros no Sentry                      | `https://xxxxxxx@sentry.io/xxxxx`                                  |
+| `FRAMES_BUCKET_NAME` | Nome do bucket S3 para armazenar os frames extra√≠dos       | `my-video-frames-bucket`                                           |
+| `ZIP_BUCKET_NAME`    | Bucket onde ser√° enviado o arquivo ZIP final               | `my-video-zips-bucket`                                             |
+| `PROGRESS_QUEUE_URL` | URL da fila SQS para mensagens de progresso                | `https://sqs.us-east-1.amazonaws.com/123456789012/MyProgressQueue` |
+| `MONGO_DB_HOST`      | Host do cluster MongoDB/DocumentDB                         | `docdb-xxxx.cluster-abcdefghij.us-east-1.docdb.amazonaws.com`      |
+| `MONGO_DB_USER`      | Usu√°rio de autentica√ß√£o MongoDB                            | `lambdauser`                                                       |
+| `MONGO_DB_PASSWORD`  | Senha de autentica√ß√£o MongoDB                              | `mySecurePassword123`                                              |
+| `DATABASE_NAME`      | Nome do banco MongoDB/DocumentDB                           | `video_processing`                                                 |
+| `COLLECTION_NAME`    | Nome da cole√ß√£o MongoDB/DocumentDB                         | `jobs`                                                             |
+| **Opcionais**        |                                                            |                                                                    |
+| `FRAME_EXTENSION`    | Extens√£o dos arquivos de frame (default: `jpg`)            | `png`                                                              |
+| `FRAME_RATE`         | Frames por segundo a extrair (default: `1`)                | `2`                                                                |
+| `BLOCK_SIZE`         | Tamanho dos blocos de extra√ß√£o em segundos (default: `30`) | `60`                                                               |
+
+> Configure valores de teste para essas vari√°veis ao rodar `dotnet test` se houver valida√ß√µes em tempo de execu√ß√£o.
+
+---
+
+## Uso e Formatos de Dados
+
+### Mensagem de Entrada (SQS Principal)
+
+```json
 {
   "video_id": "a4708f6c-b38a-41c2-a799-24f0f1e5f8f7",
   "video_hash": "sha1:4f9c1a38b8ed3f57a89c3cb674c64f2d9f23ec93",
   "cognito_user_id": "a4681438-70b1-70cb-308f-cc40ea50066a",
-  "bucket": "mazy-video-tools-d32e914",
-  "key": "a4681438-70b1-70cb-308f-cc40ea50066a/1750362343187_O DESAFIO MAIS IMPOSSÕVEL DO MUNDO! #shorts.mp4",
+  "bucket": "meu-bucket-de-videos",
+  "key": "folder-x/video-original.mp4",
   "timestamp": "2025-06-19T19:45:50+00:00"
 }
-
 ```
 
-### Fila SQS de Progresso (Ex: `progress-queue`)
+### Mensagens de Progresso (SQS de Progresso)
 
-A funÁ„o envia atualizaÁıes para esta fila durante e apÛs o processamento.
+#### Durante o processamento
 
-**Em Progresso** (enviada apÛs cada bloco):
-
-```
+```json
 {
   "video_id": "a4708f6c-b38a-41c2-a799-24f0f1e5f8f7",
   "status": "RUNNING",
@@ -117,30 +122,26 @@ A funÁ„o envia atualizaÁıes para esta fila durante e apÛs o processamento.
   "total_blocks": 10,
   "timestamp": "2025-06-19T19:46:37+00:00"
 }
-
 ```
 
-**ConcluÌdo** (enviada no final):
+#### Ao concluir
 
-```
+```json
 {
   "video_id": "a4708f6c-b38a-41c2-a799-24f0f1e5f8f7",
   "status": "COMPLETED",
   "progress": 100,
   "timestamp": "2025-06-19T19:48:05+00:00",
   "zip": {
-    "bucket": "mazy-video-tools-video-zip-4d5e917",
-    "key": "a4681438-70b1-70cb-308f-cc40ea50066a/a4708f6c-b38a-41c2-a799-24f0f1e5f8f7.zip"
+    "bucket": "my-video-zips-bucket",
+    "key": "a4708f6c-b38a-41c2-a799-24f0f1e5f8f7.zip"
   }
 }
-
 ```
 
-### Documento no MongoDB (ColeÁ„o `jobs`)
+### Documento no MongoDB (Cole√ß√£o `jobs`)
 
-Este documento representa o estado completo de um job e È atualizado ao longo do processo.
-
-```
+```json
 {
   "_id": "a4708f6c-b38a-41c2-a799-24f0f1e5f8f7",
   "status": "RUNNING",
@@ -151,21 +152,53 @@ Este documento representa o estado completo de um job e È atualizado ao longo do
   "current_block": 2,
   "total_blocks": 10,
   "last_heartbeat": "2025-06-19T19:46:37.000Z",
-  "current_step": "ExtraindoFrames",
+  "current_step": "Extracting",
   "started_at": "2025-06-19T19:40:00.000Z",
   "completed_at": null
 }
-
 ```
 
-_Status pode ser: `Pendente`, `Executando`, `Completo`, `Falhou`, `Interrompido`_.
+---
 
-## Monitoramento e SoluÁ„o de Problemas
+## Execu√ß√£o e Testes
 
--   **Logs do CloudWatch**: Acesse a aba **Monitor** da sua funÁ„o Lambda para visualizar os logs detalhados.
-    
--   **Fila SQS de Progresso**: Monitore as mensagens para acompanhar o status em tempo real.
-    
--   **SQS** Dead Letter Queue **(DLQ)**: Verifique a DLQ da fila principal para mensagens que falharam repetidamente.
-    
--   **MongoDB**: Verifique a coleÁ„o `jobs` para inspecionar o estado detalhado de cada job.
+### Terminal
+
+Execute no diret√≥rio raiz:
+
+```bash
+dotnet test ImageExtractor.Tests
+```
+
+Executa todos os testes xUnit, com suporte a mocks e valida√ß√µes de ambiente.
+
+### Visual Studio 2022
+
+Abra a solu√ß√£o e utilize o **Test Explorer** para rodar e verificar os testes.
+
+### Estrutura de Testes
+
+1. **Testes de Unidade**
+
+   * `ImageExtractionWorkflowTests.cs`: cobre as etapas principais (download, an√°lise, extra√ß√£o, compacta√ß√£o).
+   * `FunctionTests.cs`: cobre a classe de entrada da Lambda e valida√ß√µes.
+
+2. **Mocks com Moq**
+
+   * Simula depend√™ncias como `IVideoStorage`, `IFrameExtractor`, `IJobStateRepository` etc.
+
+3. **Testes de Falha**
+
+   * Testes que simulam exce√ß√µes (ex.: falha no download ou extra√ß√£o) para verificar tratamento correto de estado.
+
+> Em caso de erros de valida√ß√£o (`IEnvironmentValidator`), use mocks ou configure as vari√°veis de ambiente localmente.
+
+---
+
+## Observabilidade
+
+* **CloudWatch Logs** ‚Äì Monitore logs detalhados na aba de Monitoramento da Lambda.
+* **Fila de Progresso (SQS)** ‚Äì Acompanhe o andamento e finaliza√ß√µes por mensagens.
+* **Dead Letter Queue (DLQ)** ‚Äì Falhas recorrentes s√£o encaminhadas para an√°lise posterior.
+* **MongoDB** ‚Äì Verifique documentos da cole√ß√£o `jobs` para saber o estado atual de execu√ß√£o.
+* **Sentry** ‚Äì Integra√ß√£o para relat√≥rio de exce√ß√µes.
