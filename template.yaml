@@ -47,7 +47,9 @@ Parameters:
 
 Globals:
   Function:
-    Timeout: 300
+    Timeout: 600
+    EphemeralStorage:
+      Size: 4096
     MemorySize: 1024
 
 Resources:
@@ -55,7 +57,7 @@ Resources:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: mazy-video-tools-inbound
-      VisibilityTimeout: 300
+      VisibilityTimeout: 600
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt InboundDeadLetterQueue.Arn
         maxReceiveCount: 5
