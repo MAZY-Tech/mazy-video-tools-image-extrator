@@ -41,6 +41,10 @@ Parameters:
     Description: Nome da coleção no MongoDB para os documentos de job
     Default: video_jobs
 
+  SentryDSN:
+    Type: String
+    Description: String de conexão do Sentry para monitoramento de erros
+
 Globals:
   Function:
     Timeout: 300
@@ -99,8 +103,12 @@ Resources:
       - Statement:
           Effect: Allow
           Action:
-          - s3:GetObject
-          Resource: !Sub arn:aws:s3:::${S3Bucket}/*
+            - s3:GetObject
+            - s3:PutObject
+            - s3:DeleteObject
+          Resource:
+            - !Sub "arn:aws:s3:::${FramesBucket}/*"
+            - !Sub "arn:aws:s3:::${ZipBucket}/*"
       Events:
         VideoSQSEvent:
           Type: SQS
@@ -118,6 +126,7 @@ Resources:
           MONGO_DB_PASSWORD: !Ref DatabasePassword
           DATABASE_NAME: !Ref DatabaseName
           COLLECTION_NAME: !Ref CollectionName
+          SENTRY_DSN: !Ref SentryDSN
 
 Outputs:
   QueueUrl:

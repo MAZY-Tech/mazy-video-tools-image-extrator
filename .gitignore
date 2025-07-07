@@ -855,3 +855,4 @@ samconfig.toml
 # Additional files built by Visual Studio
 
 # End of https://www.toptal.com/developers/gitignore/api/git,rider,sonar,csharp,sonarqube,aspnetcore,dotnetcore,visualstudio,visualstudiocode,sam,sam+config
+coveragereport
