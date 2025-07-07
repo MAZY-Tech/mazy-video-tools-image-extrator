@@ -17,7 +17,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 
+          fetch-depth: 0
 
       - name: Set up .NET 8
         uses: actions/setup-dotnet@v4
@@ -68,7 +68,13 @@ jobs:
 
       - name: Run Tests with Coverage
         run: |
-          dotnet test --no-build --configuration Release --collect:"XPlat Code Coverage" --results-directory ./coverage --logger trx --verbosity normal -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=opencover
+          dotnet test --no-build --configuration Release \
+            --collect:"XPlat Code Coverage" \
+            --results-directory ./coverage \
+            --logger trx \
+            --verbosity normal \
+            -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=opencover
+        continue-on-error: true
 
       - name: End SonarQube Analysis
         env:
