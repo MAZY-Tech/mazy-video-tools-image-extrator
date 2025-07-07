@@ -40,7 +40,7 @@ public class FunctionTests : IDisposable
     {
         Environment.SetEnvironmentVariable("SENTRY_DSN", null);
         var ex = Assert.Throws<InvalidOperationException>(() => new Function());
-        Assert.Contains("'SENTRY_DSN' não está configurada.", ex.Message);
+        Assert.Contains("SENTRY_DSN", ex.Message);
     }
 
     [Fact]

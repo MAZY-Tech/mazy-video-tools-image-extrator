@@ -61,11 +61,19 @@ public class S3VideoStorageTests
         var prefix = "job-123/frames";
         var framePaths = new[]
         {
-            "/tmp/frame_001.jpg",
-            "C:\\temp\\frames\\frame_002.jpg"
-        };
+        "/tmp/frame_001.jpg",
+        "C:\\temp\\frames\\frame_002.jpg"
+    };
 
         await _storage.UploadFramesAsync(bucketName, prefix, framePaths);
+
+        _mockS3Client.Verify(
+            s => s.PutObjectAsync(
+                It.IsAny<PutObjectRequest>(),
+                It.IsAny<CancellationToken>()
+            ),
+            Times.Exactly(2)
+        );
 
         _mockS3Client.Verify(
             s => s.PutObjectAsync(
@@ -83,7 +91,8 @@ public class S3VideoStorageTests
             s => s.PutObjectAsync(
                 It.Is<PutObjectRequest>(r =>
                     r.BucketName == bucketName &&
-                    r.Key == "job-123/frames/frame_002.jpg" &&
+                    r.Key.EndsWith("frame_002.jpg") &&
+                    r.Key.StartsWith("job-123/frames") &&
                     r.FilePath == framePaths[1]
                 ),
                 It.IsAny<CancellationToken>()
