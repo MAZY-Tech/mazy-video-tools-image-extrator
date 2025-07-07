@@ -13,7 +13,7 @@ public class SqsProgressNotifier(IAmazonSQS sqsClient, string queueUrl) : IProgr
         var messageBody = JsonSerializer.Serialize(new
         {
             video_id = videoId,
-            status = JobStatusEnum.Running,
+            status = JobStatusEnum.Running.ToString(),
             progress,
             current_block = currentBlock,
             total_blocks = totalBlocks,

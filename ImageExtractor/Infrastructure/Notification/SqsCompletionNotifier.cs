@@ -13,7 +13,7 @@ public class SqsCompletionNotifier(IAmazonSQS sqsClient, string queueUrl) : ICom
         var messageBody = JsonSerializer.Serialize(new
         {
             video_id = videoId,
-            status = JobStatusEnum.Completed,
+            status = JobStatusEnum.Completed.ToString(),
             progress = 100,
             timestamp = DateTime.UtcNow,
             zip = new { bucket = zipBucket, key = zipKey }
