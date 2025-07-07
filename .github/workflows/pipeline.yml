@@ -153,10 +153,11 @@ jobs:
             --parameter-overrides \
               VpcSubnets='${{ vars.VPC_SUBNETS }}' \
               VpcSecurityGroups='${{ vars.VPC_SECURITY_GROUPS }}' \
+              SentryDSN='${{ secrets.SENTRY_DSN }}' \
               ProgressQueueUrl='${{ vars.PROGRESS_QUEUE_URL }}' \
               DatabaseHost='${{ vars.DATABASE_HOST }}' \
+              DatabasePort='${{ vars.DATABASE_PORT }}' \
               DatabaseUser='${{ vars.DATABASE_USER }}' \
               DatabasePassword='${{ secrets.DATABASE_PASSWORD }}' \
               DatabaseName='${{ vars.DATABASE_NAME }}' \
-              CollectionName='${{ vars.COLLECTION_NAME }}' \
-              S3Bucket='${{ vars.S3_BUCKET }}'
+              CollectionName='${{ vars.COLLECTION_NAME }}'
