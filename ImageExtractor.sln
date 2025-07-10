@@ -7,6 +7,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ImageExtractor", "ImageExtr
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{8EC462FD-D22E-90A8-E5CE-7E832BA40C5D}"
 	ProjectSection(SolutionItems) = preProject
+		.editorconfig = .editorconfig
 		.gitignore = .gitignore
 		LICENSE = LICENSE
 		.github\workflows\pipeline.yml = .github\workflows\pipeline.yml
@@ -17,14 +18,16 @@ EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "ffmpeg-layer", "ffmpeg-layer", "{02EA681E-C7D8-13C7-8484-4AC65E1B71E8}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "bin", "bin", "{E3D95E53-CDB3-4BB9-8440-5F669161EFDF}"
-	ProjectSection(SolutionItems) = preProject
-		ffmpeg-layer\bin\ffmpeg = ffmpeg-layer\bin\ffmpeg
-		ffmpeg-layer\bin\ffprobe = ffmpeg-layer\bin\ffprobe
-		ffmpeg-layer\bin\GPLv3.txt = ffmpeg-layer\bin\GPLv3.txt
-		ffmpeg-layer\bin\readme.txt = ffmpeg-layer\bin\readme.txt
-	EndProjectSection
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ImageExtractor.Tests", "ImageExtractor.Tests\ImageExtractor.Tests.csproj", "{854222B8-EE12-4098-86CA-B7A86B7BB0E8}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "x86_64", "x86_64", "{3283CAFF-FC46-434F-9BAB-E4D9BBEEC8FC}"
+	ProjectSection(SolutionItems) = preProject
+		ffmpeg-layer\bin\x86_64\ffmpeg = ffmpeg-layer\bin\x86_64\ffmpeg
+		ffmpeg-layer\bin\x86_64\ffprobe = ffmpeg-layer\bin\x86_64\ffprobe
+		ffmpeg-layer\bin\x86_64\GPLv3.txt = ffmpeg-layer\bin\x86_64\GPLv3.txt
+		ffmpeg-layer\bin\x86_64\readme.txt = ffmpeg-layer\bin\x86_64\readme.txt
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -46,6 +49,7 @@ Global
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{E3D95E53-CDB3-4BB9-8440-5F669161EFDF} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
+		{3283CAFF-FC46-434F-9BAB-E4D9BBEEC8FC} = {E3D95E53-CDB3-4BB9-8440-5F669161EFDF}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {650E2D53-6586-45FF-B03F-CF368E991CF2}

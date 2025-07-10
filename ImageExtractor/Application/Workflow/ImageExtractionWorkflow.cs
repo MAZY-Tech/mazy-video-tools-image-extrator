@@ -23,12 +23,14 @@ public class ImageExtractionWorkflow(
     private async Task ProcessJobAsync(ProcessingMessage msg, IAppLogger logger)
     {
         ConfigureSentryScope(msg.JobId);
-        LogJobStart(msg.JobId, logger);
+        logger.Log($"[Workflow] Starting processing for job '{msg.JobId}'");
 
-        var job = await GetOrCreateJobAsync(msg.JobId);
+        var job = await jobRepo.GetJobStateAsync(msg.JobId) ?? new JobState { JobId = msg.JobId };
 
         if (ShouldSkipJob(job, msg.JobId, logger))
+        {
             return;
+        }
 
         var tempPaths = CreateTempPaths(msg);
 
@@ -61,27 +63,23 @@ public class ImageExtractionWorkflow(
         job.Metadata["ZipKey"] = zipKey;
     }
 
-    private async Task<JobState> GetOrCreateJobAsync(string jobId)
+    private static bool ShouldSkipJob(JobState job, string jobId, IAppLogger logger)
     {
-        return await jobRepo.GetJobStateAsync(jobId) ?? new JobState { JobId = jobId };
-    }
-
-    private bool ShouldSkipJob(JobState job, string jobId, IAppLogger logger)
-    {
-        if (job.Status == JobStatusEnum.Completed)
+        if (job.Status == JobStatus.Completed)
         {
-            logger.Log($"Job '{jobId}' já está completo. Pulando.");
+            logger.Log($"[Workflow] Job '{jobId}' is already complete. Skipping.");
             return true;
         }
 
-        if (job.Status == JobStatusEnum.Running || job.Status == JobStatusEnum.Interrupted)
+        if (job.Status == JobStatus.Running || job.Status == JobStatus.Interrupted)
         {
-            logger.Log($"Retomando job '{jobId}' a partir da etapa '{job.CurrentStep}'.");
+            logger.Log($"[Workflow] Resuming job '{jobId}' from step '{job.CurrentStep}' with status '{job.Status}'.");
         }
         else
         {
-            job.Status = JobStatusEnum.Pending;
-            job.CurrentStep = ProcessingStepEnum.Validating;
+            job.Status = JobStatus.Pending;
+            job.CurrentStep = ProcessingStep.Validating;
+            logger.Log($"[Workflow] Starting new job '{jobId}' with status '{job.Status}'.");
         }
 
         return false;
@@ -92,26 +90,32 @@ public class ImageExtractionWorkflow(
         if (job.StartedAt == null)
             job.StartedAt = DateTime.UtcNow;
 
-        job.Status = JobStatusEnum.Running;
+        job.Status = JobStatus.Running;
         await jobRepo.SaveJobStateAsync(job);
     }
 
     private async Task ExecuteDownloadStepAsync(ProcessingMessage msg, JobState job, string tempVideoPath, IAppLogger logger)
     {
-        if (job.CurrentStep > ProcessingStepEnum.Downloading)
+        bool isExtractionComplete = job.TotalBlocks > 0 && job.CurrentBlock >= job.TotalBlocks;
+
+        if (isExtractionComplete)
+        {
+            logger.Log($"[Workflow] Extraction complete (processed {job.CurrentBlock}/{job.TotalBlocks} blocks). Video download not required. Skipping.");
             return;
+        }
 
-        job.CurrentStep = ProcessingStepEnum.Downloading;
-        logger.Log($"Baixando vídeo: s3://{msg.SourceBucket}/{msg.SourceKey}");
+        job.CurrentStep = ProcessingStep.Downloading;
+        logger.Log($"[Workflow] Downloading video from s3://{msg.SourceBucket}/{msg.SourceKey} to {tempVideoPath}");
 
-        await videoStorage.DownloadVideoAsync(msg.SourceBucket, msg.SourceKey, tempVideoPath);
+        await videoStorage.DownloadVideoAsync(msg.SourceBucket, msg.SourceKey, tempVideoPath, logger);
         await jobRepo.SaveJobStateAsync(job);
     }
 
     private async Task<VideoMetadata> ExecuteAnalysisStepAsync(JobState job, string tempVideoPath, IAppLogger logger)
     {
-        if (job.CurrentStep > ProcessingStepEnum.Analyzing)
+        if (job.TotalFrames > 0)
         {
+            logger.Log($"[Workflow] Analysis data already exists for job '{job.JobId}'. Skipping analysis step.");
             return new VideoMetadata
             {
                 FrameCount = job.TotalFrames,
@@ -119,13 +123,13 @@ public class ImageExtractionWorkflow(
             };
         }
 
-        job.CurrentStep = ProcessingStepEnum.Analyzing;
-        var metadata = await analyzer.AnalyzeAsync(tempVideoPath);
+        job.CurrentStep = ProcessingStep.Analyzing;
+        var metadata = await analyzer.AnalyzeAsync(tempVideoPath, logger);
 
         job.TotalFrames = metadata.FrameCount;
         job.TotalBlocks = (int)Math.Ceiling(metadata.DurationSeconds / config.BlockSize);
 
-        logger.Log($"Análise concluída. Duração: {metadata.DurationSeconds:F2}s");
+        logger.Log($"[Workflow] Analysis complete. Duration: {metadata.DurationSeconds:F2}s, Total Frames: {metadata.FrameCount}, Total Blocks: {job.TotalBlocks}");
         await jobRepo.SaveJobStateAsync(job);
 
         return metadata;
@@ -133,30 +137,35 @@ public class ImageExtractionWorkflow(
 
     private async Task ExecuteExtractionStepAsync(ProcessingMessage msg, JobState job, TempPaths paths, VideoMetadata metadata, IAppLogger logger)
     {
-        if (job.CurrentStep > ProcessingStepEnum.Extracting)
-            return;
+        if (job.CurrentStep > ProcessingStep.Extracting) return;
 
-        job.CurrentStep = ProcessingStepEnum.Extracting;
+        job.CurrentStep = ProcessingStep.Extracting;
         await ExtractFramesInBlocksAsync(msg, job, paths.VideoPath, paths.FramesDir, metadata, logger);
     }
 
     private async Task<string> ExecuteZippingStepAsync(ProcessingMessage msg, JobState job, TempPaths paths, IAppLogger logger)
     {
-        if (job.CurrentStep > ProcessingStepEnum.Zipping)
+        if (job.CurrentStep > ProcessingStep.Zipping)
         {
             return job.Metadata["ZipKey"]?.ToString() ?? "";
         }
 
-        job.CurrentStep = ProcessingStepEnum.Zipping;
-        logger.Log("Criando arquivo ZIP...");
-
+        job.CurrentStep = ProcessingStep.Zipping;
         var zipPath = Path.Combine(config.TempFolder, $"{msg.JobId}.zip");
-        await zipService.CreateZipAsync(paths.FramesDir, zipPath);
+
+        logger.Log($"[Workflow] Downloading all frames for job {msg.JobId} to create zip file...");
+        var jobFramePrefix = $"{msg.JobId}/";
+        await videoStorage.DownloadAllFramesAsync(config.FramesBucket, jobFramePrefix, paths.FramesDir, logger);
+
+
+        logger.Log($"[Workflow] Creating zip file at {zipPath}...");
+
+        await zipService.CreateZipAsync(paths.FramesDir, zipPath, logger);
 
         var zipKey = $"{msg.JobId}/{Path.GetFileName(zipPath)}";
-        await zipService.UploadZipAsync(config.ZipBucket, zipKey, zipPath);
+        await zipService.UploadZipAsync(config.ZipBucket, zipKey, zipPath, logger);
 
-        logger.Log($"Arquivo ZIP enviado para s3://{config.ZipBucket}/{zipKey}");
+        logger.Log($"[Workflow] Zip file uploaded to s3://{config.ZipBucket}/{zipKey}");
         await jobRepo.SaveJobStateAsync(job);
 
         return zipKey;
@@ -164,7 +173,7 @@ public class ImageExtractionWorkflow(
 
     private async Task ExtractFramesInBlocksAsync(ProcessingMessage msg, JobState job, string videoPath, string framesDir, VideoMetadata metadata, IAppLogger logger)
     {
-        logger.Log($"Iniciando extração em {job.TotalBlocks} blocos. Começando do bloco {job.CurrentBlock + 1}.");
+        logger.Log($"[Workflow] Starting extraction in {job.TotalBlocks} blocks. Beginning from block {job.CurrentBlock + 1}.");
 
         for (int i = job.CurrentBlock; i < job.TotalBlocks; i++)
         {
@@ -179,27 +188,41 @@ public class ImageExtractionWorkflow(
 
         LogBlockProgress(blockIndex, job.TotalBlocks, logger);
 
-        await frameExtractor.ExtractFramesAsync(videoPath, framesDir, metadata, config.FrameRate, blockDuration, null);
+        var blockStartTime = DateTime.UtcNow;
 
-        await ProcessExtractedFramesAsync(msg, job, framesDir, blockIndex);
+        var extractionStartTime = TimeSpan.FromSeconds(blockIndex * config.BlockSize);
+
+        await frameExtractor.ExtractFramesAsync(videoPath, framesDir, config.FrameRate, extractionStartTime, blockDuration, blockIndex, logger);
+
+        await ProcessExtractedFramesAsync(msg, job, framesDir, blockIndex, logger);
+
         await UpdateBlockProgress(job, blockIndex, blockDuration);
-        await NotifyBlockProgress(msg.JobId, job);
+
+        var blockEndTime = DateTime.UtcNow;
+        var processingTime = blockEndTime - blockStartTime;
+
+        LogBlockCompletion(blockIndex, job.TotalBlocks, job.ProcessedFrames, processingTime, logger);
+
+        await NotifyBlockProgress(msg.JobId, job, logger);
     }
 
-    private async Task ProcessExtractedFramesAsync(ProcessingMessage msg, JobState job, string framesDir, int blockIndex)
+    private async Task ProcessExtractedFramesAsync(ProcessingMessage msg, JobState job, string framesDir, int blockIndex, IAppLogger logger)
     {
         var framePaths = Directory.GetFiles(framesDir, $"*.{config.FrameExtension}");
         if (framePaths.Length == 0) return;
 
+        var targetPrefix = $"{msg.JobId}/block_{blockIndex + 1}";
+        logger.Log($"[Workflow] Uploading {framePaths.Length} frames to s3://{config.FramesBucket}/{targetPrefix}");
+
         await videoStorage.UploadFramesAsync(
             bucket: config.FramesBucket,
-            prefix: $"{msg.JobId}/block_{blockIndex + 1}",
-            framePaths
+            prefix: targetPrefix,
+            framePaths,
+            logger
         );
 
         job.ProcessedFrames += framePaths.Length;
 
-        // Limpa frames do bloco atual
         foreach (var framePath in framePaths)
             File.Delete(framePath);
     }
@@ -218,16 +241,16 @@ public class ImageExtractionWorkflow(
         await jobRepo.SaveJobStateAsync(job);
     }
 
-    private async Task NotifyBlockProgress(string jobId, JobState job)
+    private async Task NotifyBlockProgress(string jobId, JobState job, IAppLogger logger)
     {
         var progressPct = (int)((double)job.CurrentBlock / job.TotalBlocks * 100);
-        await progressNotifier.NotifyProgressAsync(jobId, progressPct, job.CurrentBlock, job.TotalBlocks);
+        await progressNotifier.NotifyProgressAsync(jobId, progressPct, job.CurrentBlock, job.TotalBlocks, logger);
     }
 
     private async Task CompleteJobAsync(JobState job, string jobId, IAppLogger logger)
     {
-        job.Status = JobStatusEnum.Completed;
-        job.CurrentStep = ProcessingStepEnum.Done;
+        job.Status = JobStatus.Completed;
+        job.CurrentStep = ProcessingStep.Done;
         job.CompletedAt = DateTime.UtcNow;
         job.LastHeartbeat = DateTime.UtcNow;
 
@@ -236,54 +259,58 @@ public class ImageExtractionWorkflow(
         var zipBucket = job.Metadata["ZipBucket"].ToString();
         var zipKey = job.Metadata["ZipKey"].ToString();
 
-        await completionNotifier.NotifyCompletionAsync(jobId, zipBucket!, zipKey!);
-        logger.Log($"Processo concluído com sucesso para o Job '{jobId}'.");
+        await completionNotifier.NotifyCompletionAsync(jobId, zipBucket!, zipKey!, logger);
+        logger.Log($"[Workflow] Job '{jobId}' completed successfully.");
     }
 
     private async Task HandleJobFailureAsync(JobState job, ProcessingMessage msg, Exception ex, IAppLogger logger)
     {
-        logger.Log($"Falha no processamento do Job '{msg.JobId}': {ex.Message}");
+        logger.Log($"[Workflow] [ERROR] Job processing failed for '{msg.JobId}': {ex.Message}");
         SentrySdk.CaptureException(ex, scope => scope.SetExtra("ProcessingMessage", msg));
 
-        job.Status = JobStatusEnum.Failed;
+        job.Status = JobStatus.Failed;
         job.LastHeartbeat = DateTime.UtcNow;
         await jobRepo.SaveJobStateAsync(job);
     }
 
-    private void CleanupTempFiles(TempPaths paths, IAppLogger logger)
+    private static void CleanupTempFiles(TempPaths paths, IAppLogger logger)
     {
         try
         {
-            if (File.Exists(paths.VideoPath))
-                File.Delete(paths.VideoPath);
+            if (File.Exists(paths.VideoPath)) File.Delete(paths.VideoPath);
+            if (Directory.Exists(paths.FramesDir)) Directory.Delete(paths.FramesDir, true);
 
-            if (Directory.Exists(paths.FramesDir))
-                Directory.Delete(paths.FramesDir, true);
-
-            logger.Log("Limpeza de arquivos temporários concluída.");
+            logger.Log("[Workflow] Temporary file cleanup complete.");
         }
         catch (Exception ex)
         {
-            logger.Log($"Erro na limpeza de arquivos temporários: {ex.Message}");
+            logger.Log($"[Workflow] [ERROR] Error during temporary file cleanup: {ex.Message}");
         }
     }
 
     private static void ConfigureSentryScope(string jobId)
     {
         SentrySdk.ConfigureScope(scope => scope.SetTag("JobId", jobId));
-        SentrySdk.AddBreadcrumb("Workflow iniciado.", "workflow.life-cycle", level: BreadcrumbLevel.Info);
-    }
-
-    private static void LogJobStart(string jobId, IAppLogger logger)
-    {
-        logger.Log($"Iniciando processamento para o job '{jobId}'");
+        SentrySdk.AddBreadcrumb("Workflow starting.", "workflow.life-cycle", level: BreadcrumbLevel.Info);
     }
 
     private static void LogBlockProgress(int blockIndex, int totalBlocks, IAppLogger logger)
     {
-        var blockLoggerMsg = $"Processando bloco {blockIndex + 1}/{totalBlocks}";
+        var blockLoggerMsg = $"[Workflow] Processing block {blockIndex + 1}/{totalBlocks}";
         logger.Log(blockLoggerMsg);
-        SentrySdk.AddBreadcrumb(blockLoggerMsg, "video.extract", level: BreadcrumbLevel.Debug);
+        SentrySdk.AddBreadcrumb($"Processing block {blockIndex + 1}/{totalBlocks}", "video.extract", level: BreadcrumbLevel.Debug);
+    }
+
+    private static void LogBlockCompletion(int blockIndex, int totalBlocks, int totalProcessedFrames, TimeSpan processingTime, IAppLogger logger)
+    {
+        var completionMessage = $"[Workflow] Block {blockIndex + 1}/{totalBlocks} completed in {processingTime.TotalSeconds:F2}s. Total frames processed: {totalProcessedFrames}";
+        logger.Log(completionMessage);
+
+        SentrySdk.AddBreadcrumb(
+            $"Block {blockIndex + 1}/{totalBlocks} completed in {processingTime.TotalSeconds:F2}s",
+            "video.extract.complete",
+            level: BreadcrumbLevel.Info
+        );
     }
 
     private int CalculateBlockDuration(double totalDurationSeconds, int blockIndex)
@@ -301,11 +328,6 @@ public class ImageExtractionWorkflow(
         Directory.CreateDirectory(framesDir);
 
         return new TempPaths(tempVideoPath, framesDir);
-    }
-
-    public void ExecuteAsync(IEnumerable<IMessageParser> enumerable, IAppLogger appLogger)
-    {
-        throw new NotImplementedException();
     }
 }
 

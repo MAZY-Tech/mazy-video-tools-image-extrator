@@ -41,7 +41,7 @@ public class MongoJobStateRepositoryTests
 
         Assert.NotNull(result);
         Assert.Equal(jobId, result.JobId);
-        Assert.Equal(JobStatusEnum.Running, result.Status);
+        Assert.Equal(JobStatus.Running, result.Status);
     }
 
     [Fact]
@@ -70,8 +70,8 @@ public class MongoJobStateRepositoryTests
         var jobState = new JobState
         {
             JobId = "job-to-save",
-            Status = JobStatusEnum.Completed,
-            CurrentStep = ProcessingStepEnum.Zipping,
+            Status = JobStatus.Completed,
+            CurrentStep = ProcessingStep.Zipping,
             Progress = 100
         };
 

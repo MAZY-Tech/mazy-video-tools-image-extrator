@@ -1,46 +1,40 @@
 ﻿using ImageExtractor.Application.Interfaces;
-using ImageExtractor.Domain;
 using System.Diagnostics;
 
 namespace ImageExtractor.Infrastructure.VideoProcessing;
 
 public class FfmpegFrameExtractor(string ffmpegPath) : IFrameExtractor
 {
-    public async Task ExtractFramesAsync(string videoPath, string outputDir, VideoMetadata metadata, int frameRate, int blockSeconds, Action<int, int>? onProgress = null)
+    public async Task ExtractFramesAsync(string videoPath, string outputDir, int frameRate, TimeSpan startTime, int duration, int blockIndex, IAppLogger logger)
     {
         if (!Directory.Exists(outputDir))
             Directory.CreateDirectory(outputDir);
 
-        var totalDurationInSeconds = metadata.DurationSeconds;
-        var totalBlocks = (int)Math.Ceiling(totalDurationInSeconds / blockSeconds);
+        var outputPattern = Path.Combine(outputDir, $"block{blockIndex:D4}_frame%04d.jpg");
 
-        for (int i = 0; i < totalBlocks; i++)
+        var args = $"-threads 0 -hwaccel auto -ss {startTime} -i \"{videoPath}\" -t {duration} -vf fps={frameRate} -q:v 3 -f image2 -y \"{outputPattern}\" -hide_banner -loglevel error";
+
+        logger.Log($"[FfmpegFrameExtractor] Executing command: '{ffmpegPath} {args}'");
+
+        var processInfo = new ProcessStartInfo
         {
-            var startTime = TimeSpan.FromSeconds(i * blockSeconds);
-            var outputPattern = Path.Combine(outputDir, $"frame_{i:D4}_%03d.jpg");
+            FileName = ffmpegPath,
+            Arguments = args,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
 
-            var args = $"-ss {startTime} -i \"{videoPath}\" -t {blockSeconds} -vf fps={frameRate} \"{outputPattern}\" -hide_banner -loglevel error";
-            var processInfo = new ProcessStartInfo
-            {
-                FileName = ffmpegPath,
-                Arguments = args,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
+        using var process = Process.Start(processInfo) ?? throw new InvalidOperationException("Failed to start ffmpeg process.");
 
-            using var process = Process.Start(processInfo);
-            if (process == null) throw new InvalidOperationException("Failed to start ffmpeg process.");
+        await process.WaitForExitAsync();
 
-            await process.WaitForExitAsync();
-            if (process.ExitCode != 0)
-            {
-                var error = await process.StandardError.ReadToEndAsync();
-                throw new Exception($"ffmpeg error (block {i}): {error}");
-            }
-
-            onProgress?.Invoke(i + 1, totalBlocks);
+        if (process.ExitCode != 0)
+        {
+            var error = await process.StandardError.ReadToEndAsync();
+            logger.Log($"[FfmpegFrameExtractor] [ERROR] ffmpeg process exited with code {process.ExitCode}. Error: {error}");
+            throw new InvalidOperationException($"ffmpeg error: {error}");
         }
     }
 }

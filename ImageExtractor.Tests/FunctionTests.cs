@@ -1,7 +1,9 @@
-﻿using Amazon.Lambda.SQSEvents;
+﻿using Amazon.Lambda.Core;
+using Amazon.Lambda.SQSEvents;
 using Amazon.Lambda.TestUtilities;
 using ImageExtractor.Application.Interfaces;
 using ImageExtractor.Domain;
+using ImageExtractor.Infrastructure.Adapters;
 using Microsoft.Extensions.DependencyInjection;
 using Moq;
 
@@ -46,9 +48,11 @@ public class FunctionTests : IDisposable
     [Fact]
     public async Task FunctionHandler_WithSingleMessage_ShouldExecuteWorkflow()
     {
+        var lambdaLogger = new Mock<ILambdaLogger>();
+        var appLogger = new LambdaContextLogger(lambdaLogger.Object);
         var sqsEvent = new SQSEvent { Records = new List<SQSEvent.SQSMessage> { new() } };
         var context = new TestLambdaContext();
-        _mockMessageParser.Setup(p => p.Parse(It.IsAny<SQSEvent.SQSMessage>())).Returns(new ProcessingMessage());
+        _mockMessageParser.Setup(p => p.Parse(It.IsAny<SQSEvent.SQSMessage>(), It.IsAny<IAppLogger>())).Returns(new ProcessingMessage());
 
         var function = new Function(_serviceProvider, _mockSentryHub.Object);
 
@@ -60,15 +64,17 @@ public class FunctionTests : IDisposable
     [Fact]
     public async Task FunctionHandler_WithMultipleMessages_ShouldThrowAndCaptureException()
     {
+        var lambdaLogger = new Mock<ILambdaLogger>();
+        var appLogger = new LambdaContextLogger(lambdaLogger.Object);
         var sqsEvent = new SQSEvent { Records = new List<SQSEvent.SQSMessage> { new(), new() } };
         var context = new TestLambdaContext();
-        _mockMessageParser.Setup(p => p.Parse(It.IsAny<SQSEvent.SQSMessage>())).Returns(new ProcessingMessage());
+        _mockMessageParser.Setup(p => p.Parse(It.IsAny<SQSEvent.SQSMessage>(), It.IsAny<IAppLogger>())).Returns(new ProcessingMessage());
 
         var function = new Function(_serviceProvider, _mockSentryHub.Object);
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => function.FunctionHandler(sqsEvent, context));
 
-        Assert.Equal("Only one video can be processed at same time", ex.Message);
+        Assert.Equal("Only one video can be processed at the same time", ex.Message);
 
         _mockWorkflow.Verify(w => w.ExecuteAsync(It.IsAny<IEnumerable<ProcessingMessage>>(), It.IsAny<IAppLogger>()), Times.Never);
     }

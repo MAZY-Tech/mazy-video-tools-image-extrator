@@ -1,4 +1,7 @@
-﻿using ImageExtractor.Infrastructure.VideoProcessing;
+﻿using Amazon.Lambda.Core;
+using ImageExtractor.Infrastructure.Adapters;
+using ImageExtractor.Infrastructure.VideoProcessing;
+using Moq;
 using System.Runtime.InteropServices;
 
 namespace ImageExtractor.Tests;
@@ -23,6 +26,8 @@ public class FfprobeVideoAnalyzerTests
     [Fact]
     public async Task AnalyzeAsync_ShouldParseFfprobeJsonOutput_Correctly()
     {
+        var lambdaLogger = new Mock<ILambdaLogger>();
+        var appLogger = new LambdaContextLogger(lambdaLogger.Object);
         string fakeFfprobePath = CreateFakeFfprobeScript();
 
         try
@@ -30,7 +35,7 @@ public class FfprobeVideoAnalyzerTests
             var analyzer = new FfprobeVideoAnalyzer(fakeFfprobePath);
             var dummyVideoPath = "/path/to/any/video.mp4";
 
-            var metadata = await analyzer.AnalyzeAsync(dummyVideoPath);
+            var metadata = await analyzer.AnalyzeAsync(dummyVideoPath, appLogger);
 
             Assert.NotNull(metadata);
 

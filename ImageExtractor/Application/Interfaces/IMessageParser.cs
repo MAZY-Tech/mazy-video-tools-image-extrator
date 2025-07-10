@@ -5,5 +5,5 @@ namespace ImageExtractor.Application.Interfaces;
 
 public interface IMessageParser
 {
-    ProcessingMessage Parse(SQSEvent.SQSMessage message);
+    ProcessingMessage Parse(SQSEvent.SQSMessage message, IAppLogger logger);
 }

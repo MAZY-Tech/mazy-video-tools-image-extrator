@@ -4,6 +4,6 @@ namespace ImageExtractor.Application.Interfaces
 {
     public interface IFrameExtractor
     {
-        Task ExtractFramesAsync(string videoPath, string outputDir, VideoMetadata metadata, int frameRate, int blockSeconds, Action<int, int>? onProgress = null);
+        Task ExtractFramesAsync(string videoPath, string outputDir, int frameRate, TimeSpan startTime, int duration, int blockIndex, IAppLogger logger);
     }
 }

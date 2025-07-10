@@ -3,8 +3,8 @@
 public class JobState
 {
     public string JobId { get; set; } = default!;
-    public JobStatusEnum Status { get; set; }
-    public ProcessingStepEnum CurrentStep { get; set; }
+    public JobStatus Status { get; set; }
+    public ProcessingStep CurrentStep { get; set; }
 
     public int LastProcessedSecond { get; set; }
     public int CurrentBlock { get; set; }
