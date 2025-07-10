@@ -1,44 +1,45 @@
-﻿using Amazon.Lambda.Core;
-using ImageExtractor.Infrastructure.Adapters;
-using ImageExtractor.Infrastructure.VideoProcessing;
+﻿using ImageExtractor.Application.Interfaces;
+using ImageExtractor.Domain;
 using Moq;
 using System.Runtime.InteropServices;
 
-namespace ImageExtractor.Tests;
+namespace ImageExtractor.Infrastructure.VideoProcessing.Tests;
 
 public class FfprobeVideoAnalyzerTests
 {
+    private readonly Mock<IAppLogger> _mockLogger;
     private const string FakeFfprobeOutput = @"{
-            ""streams"": [
-                {
-                    ""codec_type"": ""video"",
-                    ""nb_frames"": ""1798""
-                },
-                {
-                    ""codec_type"": ""audio""
-                }
-            ],
-            ""format"": {
-                ""duration"": ""59.989000""
+        ""streams"": [
+            {
+                ""codec_type"": ""video"",
+                ""nb_frames"": ""1798""
+            },
+            {
+                ""codec_type"": ""audio""
             }
-        }";
+        ],
+        ""format"": {
+            ""duration"": ""59.989000""
+        }
+    }";
+
+    public FfprobeVideoAnalyzerTests()
+    {
+        _mockLogger = new Mock<IAppLogger>();
+    }
 
     [Fact]
     public async Task AnalyzeAsync_ShouldParseFfprobeJsonOutput_Correctly()
     {
-        var lambdaLogger = new Mock<ILambdaLogger>();
-        var appLogger = new LambdaContextLogger(lambdaLogger.Object);
-        string fakeFfprobePath = CreateFakeFfprobeScript();
-
+        string fakeFfprobePath = CreateFakeFfprobeScript(FakeFfprobeOutput, exitCode: 0);
         try
         {
             var analyzer = new FfprobeVideoAnalyzer(fakeFfprobePath);
             var dummyVideoPath = "/path/to/any/video.mp4";
 
-            var metadata = await analyzer.AnalyzeAsync(dummyVideoPath, appLogger);
+            var metadata = await analyzer.AnalyzeAsync(dummyVideoPath, _mockLogger.Object);
 
             Assert.NotNull(metadata);
-
             Assert.Equal(59.989, metadata.DurationSeconds, precision: 5);
             Assert.Equal(1798, metadata.FrameCount);
         }
@@ -51,32 +52,130 @@ public class FfprobeVideoAnalyzerTests
         }
     }
 
-    private string CreateFakeFfprobeScript()
+    [Fact]
+    public async Task AnalyzeAsync_ShouldThrowFileNotFoundException_WhenBinaryDoesNotExist()
     {
-        var scriptPath = Path.Combine(Path.GetTempPath(), "fake-ffprobe" + (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? ".bat" : ""));
+        var invalidPath = Path.Combine(Path.GetTempPath(), "nonexistent-ffprobe");
+        var analyzer = new FfprobeVideoAnalyzer(invalidPath);
+        var dummyVideoPath = "/path/to/video.mp4";
+
+        await Assert.ThrowsAsync<FileNotFoundException>(
+            () => analyzer.AnalyzeAsync(dummyVideoPath, _mockLogger.Object)
+        );
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_ShouldThrowInvalidOperationException_WhenProcessFails()
+    {
+        var errorMessage = "This is a fake error message.";
+        string fakeFfprobePath = CreateFakeFfprobeScript(errorMessage, exitCode: 1, toStdError: true);
+        try
+        {
+            var analyzer = new FfprobeVideoAnalyzer(fakeFfprobePath);
+            var dummyVideoPath = "/path/to/video.mp4";
+
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => analyzer.AnalyzeAsync(dummyVideoPath, _mockLogger.Object)
+            );
+
+            Assert.Contains(errorMessage, exception.Message);
+            Assert.Contains("ffprobe failed with exit code 1", exception.Message);
+        }
+        finally
+        {
+            if (File.Exists(fakeFfprobePath))
+            {
+                File.Delete(fakeFfprobePath);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_ShouldThrowInvalidOperationException_ForInvalidJson()
+    {
+        var invalidJson = "this is not valid json";
+        string fakeFfprobePath = CreateFakeFfprobeScript(invalidJson, exitCode: 0);
+        try
+        {
+            var analyzer = new FfprobeVideoAnalyzer(fakeFfprobePath);
+            var dummyVideoPath = "/path/to/video.mp4";
+
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => analyzer.AnalyzeAsync(dummyVideoPath, _mockLogger.Object)
+            );
+
+            Assert.Contains("Failed to parse ffprobe JSON output", exception.Message);
+        }
+        finally
+        {
+            if (File.Exists(fakeFfprobePath))
+            {
+                File.Delete(fakeFfprobePath);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_ShouldThrowInvalidOperationException_ForEmptyOutput()
+    {
+        string fakeFfprobePath = CreateFakeFfprobeScript(string.Empty, exitCode: 0);
+        try
+        {
+            var analyzer = new FfprobeVideoAnalyzer(fakeFfprobePath);
+            var dummyVideoPath = "/path/to/video.mp4";
+
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => analyzer.AnalyzeAsync(dummyVideoPath, _mockLogger.Object)
+            );
+
+            Assert.Equal("ffprobe returned empty output", exception.Message);
+        }
+        finally
+        {
+            if (File.Exists(fakeFfprobePath))
+            {
+                File.Delete(fakeFfprobePath);
+            }
+        }
+    }
+
+    private string CreateFakeFfprobeScript(string output, int exitCode, bool toStdError = false)
+    {
+        var scriptName = "fake-ffprobe-" + Guid.NewGuid();
+        string scriptExtension = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? ".bat" : "";
+        var scriptPath = Path.Combine(Path.GetTempPath(), scriptName + scriptExtension);
 
         string scriptContent;
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            var tempJsonPath = scriptPath + ".json";
-            File.WriteAllText(tempJsonPath, FakeFfprobeOutput);
+            var tempOutputPath = scriptPath + ".output.txt";
+            File.WriteAllText(tempOutputPath, output);
 
-            scriptContent = $"@echo off\r\ntype \"{tempJsonPath}\"";
+            string redirect = toStdError ? "1>&2" : "";
+
+            // Using a temp file is more reliable than 'echo' for multi-line/special characters on Windows.
+            // The script self-cleans the temp file.
+            scriptContent = $"@echo off\r\n(type \"{tempOutputPath}\") {redirect}\r\ndel \"{tempOutputPath}\"\r\nexit /b {exitCode}";
         }
         else
         {
-            scriptContent = "#!/bin/sh\n" +
-                            "cat <<EOF\n" +
-                            FakeFfprobeOutput +
-                            "\nEOF";
+            // A 'here document' is the most robust method for Unix-like systems.
+            string redirect = toStdError ? "1>&2" : "";
+            scriptContent = $"""
+            #!/bin/sh
+            cat <<'FPROBE_EOF' {redirect}
+            {output}
+            FPROBE_EOF
+            exit {exitCode}
+            """;
         }
 
         File.WriteAllText(scriptPath, scriptContent);
 
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            File.SetUnixFileMode(scriptPath, UnixFileMode.UserExecute | UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            File.SetUnixFileMode(scriptPath, UnixFileMode.UserExecute | UnixFileMode.UserRead);
         }
 
         return scriptPath;
