@@ -1,5 +1,7 @@
-﻿using Amazon.S3;
+﻿using Amazon.Lambda.Core;
+using Amazon.S3;
 using Amazon.S3.Model;
+using ImageExtractor.Infrastructure.Adapters;
 using ImageExtractor.Infrastructure.Storage;
 using Moq;
 using System.Text;
@@ -20,6 +22,8 @@ public class S3VideoStorageTests
     [Fact]
     public async Task DownloadVideoAsync_ShouldWriteS3StreamToFile_AndReturnPath()
     {
+        var lambdaLogger = new Mock<ILambdaLogger>();
+        var appLogger = new LambdaContextLogger(lambdaLogger.Object);
         var bucketName = "test-bucket";
         var key = "videos/my-video.mp4";
         var tempOutputPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString() + ".mp4");
@@ -37,7 +41,7 @@ public class S3VideoStorageTests
 
         try
         {
-            var resultPath = await _storage.DownloadVideoAsync(bucketName, key, tempOutputPath);
+            var resultPath = await _storage.DownloadVideoAsync(bucketName, key, tempOutputPath, appLogger);
 
             Assert.Equal(tempOutputPath, resultPath);
             Assert.True(File.Exists(resultPath));
@@ -57,6 +61,8 @@ public class S3VideoStorageTests
     [Fact]
     public async Task UploadFramesAsync_ShouldCallPutObjectForEachFrame_WithCorrectKey()
     {
+        var lambdaLogger = new Mock<ILambdaLogger>();
+        var appLogger = new LambdaContextLogger(lambdaLogger.Object);
         var bucketName = "output-bucket";
         var prefix = "job-123/frames";
         var framePaths = new[]
@@ -65,7 +71,7 @@ public class S3VideoStorageTests
         "C:\\temp\\frames\\frame_002.jpg"
     };
 
-        await _storage.UploadFramesAsync(bucketName, prefix, framePaths);
+        await _storage.UploadFramesAsync(bucketName, prefix, framePaths, appLogger);
 
         _mockS3Client.Verify(
             s => s.PutObjectAsync(

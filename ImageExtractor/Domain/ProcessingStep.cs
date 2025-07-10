@@ -1,6 +1,6 @@
 ﻿namespace ImageExtractor.Domain;
 
-public enum ProcessingStepEnum
+public enum ProcessingStep
 {
     Validating,
     Downloading,

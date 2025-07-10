@@ -6,21 +6,56 @@ namespace ImageExtractor.Infrastructure.Storage;
 
 public class ZipService(ITransferUtility transferUtility) : IZipService
 {
-    public async Task<string> CreateZipAsync(string sourceDirectory, string zipPath)
+    /// <summary>
+    /// Creates a zip file from a source directory asynchronously.
+    /// </summary>
+    public async Task<string> CreateZipAsync(string sourceDirectory, string zipPath, IAppLogger logger)
     {
-        await Task.CompletedTask;
+        logger.Log($"[ZipService] Starting zip file creation from directory '{sourceDirectory}' to '{zipPath}'.");
 
-        if (File.Exists(zipPath))
+        try
         {
-            File.Delete(zipPath);
-        }
+            // Running the blocking I/O operation on a background thread to make it truly async.
+            await Task.Run(() =>
+            {
+                if (File.Exists(zipPath))
+                {
+                    logger.Log($"[ZipService] Found an existing zip file. Deleting it first.");
+                    File.Delete(zipPath);
+                }
 
-        ZipFile.CreateFromDirectory(sourceDirectory, zipPath, CompressionLevel.Optimal, false);
-        return zipPath;
+                var fileCount = Directory.GetFiles(sourceDirectory, "*", SearchOption.AllDirectories).Length;
+                logger.Log($"[ZipService] Zipping {fileCount} files...");
+
+                ZipFile.CreateFromDirectory(sourceDirectory, zipPath, CompressionLevel.Optimal, false);
+            });
+
+            var fileInfo = new FileInfo(zipPath);
+            logger.Log($"[ZipService] Zip file created successfully. Path: {zipPath}, Size: {fileInfo.Length / 1024.0:F2} KB");
+            return zipPath;
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"[ZipService] [ERROR] Failed to create zip file. Exception: {ex.Message}");
+            throw;
+        }
     }
 
-    public async Task UploadZipAsync(string bucket, string key, string zipPath)
+    /// <summary>
+    /// Uploads a file to an S3 bucket.
+    /// </summary>
+    public async Task UploadZipAsync(string bucket, string key, string zipPath, IAppLogger logger)
     {
-        await transferUtility.UploadAsync(zipPath, bucket, key);
+        logger.Log($"[ZipService] Starting upload of '{zipPath}' to s3://{bucket}/{key}");
+        try
+        {
+            await transferUtility.UploadAsync(zipPath, bucket, key);
+            logger.Log($"[ZipService] Upload to s3://{bucket}/{key} completed successfully.");
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"[ZipService] [ERROR] Failed to upload zip file to S3. Exception: {ex.Message}");
+            throw;
+        }
     }
 }

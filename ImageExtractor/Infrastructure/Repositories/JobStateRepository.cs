@@ -3,6 +3,7 @@ using ImageExtractor.Domain;
 using ImageExtractor.Infrastructure.Config;
 using MongoDB.Driver;
 using System.ComponentModel;
+using System.Net;
 
 namespace ImageExtractor.Infrastructure.Repositories;
 
@@ -58,7 +59,10 @@ public class MongoJobStateRepository : IJobStateRepository
 
     private static MongoClientSettings CreateMongoSettings(string host, string user, string password, string databaseName)
     {
-        var connectionString = $"mongodb+srv://{user}:{password}@{host}/{databaseName}";
+        var userEncoded = WebUtility.UrlEncode(user);
+        var passwordEncoded = WebUtility.UrlEncode(password);
+
+        var connectionString = $"mongodb+srv://{userEncoded}:{passwordEncoded}@{host}/{databaseName}";
         var settings = MongoClientSettings.FromConnectionString(connectionString);
 
         settings.MaxConnectionPoolSize = 10;
@@ -80,8 +84,8 @@ public class MongoJobStateRepository : IJobStateRepository
         return new JobState
         {
             JobId = doc.JobId,
-            Status = Enum.Parse<JobStatusEnum>(doc.Status),
-            CurrentStep = Enum.Parse<ProcessingStepEnum>(doc.CurrentStep),
+            Status = Enum.Parse<JobStatus>(doc.Status),
+            CurrentStep = Enum.Parse<ProcessingStep>(doc.CurrentStep),
             LastProcessedSecond = doc.LastProcessedSecond,
             CurrentBlock = doc.CurrentBlock,
             TotalBlocks = doc.TotalBlocks,

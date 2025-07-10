@@ -86,7 +86,6 @@ Configure as variáveis na função Lambda:
 | `DATABASE_NAME`      | Nome do banco MongoDB/DocumentDB                           | `video_processing`                                                 |
 | `COLLECTION_NAME`    | Nome da coleção MongoDB/DocumentDB                         | `jobs`                                                             |
 | **Opcionais**        |                                                            |                                                                    |
-| `FRAME_EXTENSION`    | Extensão dos arquivos de frame (default: `jpg`)            | `png`                                                              |
 | `FRAME_RATE`         | Frames por segundo a extrair (default: `1`)                | `2`                                                                |
 | `BLOCK_SIZE`         | Tamanho dos blocos de extração em segundos (default: `30`) | `60`                                                               |
 

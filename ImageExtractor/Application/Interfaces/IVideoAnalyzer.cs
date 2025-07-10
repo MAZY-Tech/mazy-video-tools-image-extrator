@@ -4,5 +4,5 @@ namespace ImageExtractor.Application.Interfaces;
 
 public interface IVideoAnalyzer
 {
-    Task<VideoMetadata> AnalyzeAsync(string videoPath);
+    Task<VideoMetadata> AnalyzeAsync(string videoPath, IAppLogger logger);
 }

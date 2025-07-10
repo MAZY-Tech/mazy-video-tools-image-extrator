@@ -1,5 +1,7 @@
-﻿using Amazon.S3;
+﻿using Amazon.Lambda.Core;
+using Amazon.S3;
 using Amazon.S3.Transfer;
+using ImageExtractor.Infrastructure.Adapters;
 using ImageExtractor.Infrastructure.Storage;
 using Moq;
 using System.IO.Compression;
@@ -11,6 +13,8 @@ public class ZipServiceTests
     [Fact]
     public async Task CreateZipAsync_ShouldCreateZipFile_FromSourceDirectory()
     {
+        var lambdaLogger = new Mock<ILambdaLogger>();
+        var appLogger = new LambdaContextLogger(lambdaLogger.Object);
         var sourceDirectory = Path.Combine(Path.GetTempPath(), "zip_test_source_" + Guid.NewGuid());
         var zipFilePath = Path.Combine(Path.GetTempPath(), "test.zip");
         Directory.CreateDirectory(sourceDirectory);
@@ -22,7 +26,7 @@ public class ZipServiceTests
 
         try
         {
-            var resultPath = await zipService.CreateZipAsync(sourceDirectory, zipFilePath);
+            var resultPath = await zipService.CreateZipAsync(sourceDirectory, zipFilePath, appLogger);
 
             Assert.Equal(zipFilePath, resultPath);
             Assert.True(File.Exists(zipFilePath));
@@ -41,6 +45,8 @@ public class ZipServiceTests
     [Fact]
     public async Task UploadZipAsync_ShouldCallTransferUtility_WithCorrectParameters()
     {
+        var lambdaLogger = new Mock<ILambdaLogger>();
+        var appLogger = new LambdaContextLogger(lambdaLogger.Object);
         var mockTransferUtility = new Mock<ITransferUtility>();
         var zipService = new ZipService(mockTransferUtility.Object);
 
@@ -48,7 +54,7 @@ public class ZipServiceTests
         var objectKey = "archives/my-file.zip";
         var filePath = "/tmp/my-file.zip";
 
-        await zipService.UploadZipAsync(bucketName, objectKey, filePath);
+        await zipService.UploadZipAsync(bucketName, objectKey, filePath, appLogger);
 
         mockTransferUtility.Verify(
             t => t.UploadAsync(

@@ -1,6 +1,6 @@
 ﻿namespace ImageExtractor.Domain;
 
-public enum JobStatusEnum
+public enum JobStatus
 {
     Pending,
     Running,

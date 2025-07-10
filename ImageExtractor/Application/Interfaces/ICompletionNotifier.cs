@@ -2,5 +2,5 @@
 
 public interface ICompletionNotifier
 {
-    Task NotifyCompletionAsync(string videoId, string zipBucket, string zipKey);
+    Task NotifyCompletionAsync(string videoId, string zipBucket, string zipKey, IAppLogger logger);
 }
