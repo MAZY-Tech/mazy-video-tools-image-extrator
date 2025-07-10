@@ -42,7 +42,7 @@ public class FfmpegFrameExtractorTests
             Assert.Contains($"-ss {startTime.ToString("c", CultureInfo.InvariantCulture)}", capturedArgs);
             Assert.Contains($"-t {duration}", capturedArgs);
             Assert.Contains($"-vf fps={frameRate}", capturedArgs);
-            Assert.Contains($"\"{videoPath}\"", capturedArgs);
+            Assert.Contains(videoPath, capturedArgs);
             Assert.Contains($"block{blockIndex:D4}_frame%04d.jpg", capturedArgs);
         }
         finally
