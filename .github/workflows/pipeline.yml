@@ -68,7 +68,8 @@ jobs:
             /d:sonar.scanner.scanAll=false `
             /d:sonar.token="${{ secrets.SONAR_TOKEN }}" `
             /d:sonar.host.url="${{ secrets.SONAR_HOST_URL }}" `
-            /d:sonar.cs.opencover.reportsPaths="coverage/*/coverage.opencover.xml"
+            /d:sonar.cs.opencover.reportsPaths="coverage/*/coverage.opencover.xml" `
+            /d:sonar.exclusions="**/*Tests.cs"
 
       - name: Build Project
         run: dotnet build --no-restore --configuration Release

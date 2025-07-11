@@ -22,7 +22,7 @@ public class EnvironmentValidator : IEnvironmentValidator
     {
         Console.WriteLine("[LOG] Starting environment validation...");
 
-        var temp = Environment.GetEnvironmentVariable("TEMP_FOLDER") ?? "/tmp";
+        var temp = Path.GetTempPath();
         Console.WriteLine($"[LOG] Validating temporary folder path: {temp}");
         if (!Directory.Exists(temp))
         {

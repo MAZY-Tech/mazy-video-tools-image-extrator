@@ -33,11 +33,6 @@ public class FfprobeVideoAnalyzer(string ffprobePath, int timeoutMs = 300000) : 
             };
 
             process = Process.Start(psi);
-            if (process == null)
-            {
-                logger.Log("[FfprobeVideoAnalyzer] [ERROR] Failed to start ffprobe process - Process.Start returned null");
-                throw new InvalidOperationException("Failed to start ffprobe process - Process.Start returned null");
-            }
 
             // Read both outputs simultaneously
             var outputTask = process.StandardOutput.ReadToEndAsync();
@@ -121,15 +116,6 @@ public class FfprobeVideoAnalyzer(string ffprobePath, int timeoutMs = 300000) : 
                 // Check architecture compatibility
                 var currentArch = RuntimeInformation.ProcessArchitecture;
                 logger.Log($"[FfprobeVideoAnalyzer] Current process architecture: {currentArch}");
-
-                if (currentArch == Architecture.X64 && !fileTypeResult.Contains("x86-64"))
-                {
-                    logger.Log($"[FfprobeVideoAnalyzer] [WARNING] Architecture mismatch detected. Expected x86-64, got: {fileTypeResult}");
-                }
-                else if (currentArch == Architecture.Arm64 && !fileTypeResult.Contains("aarch64"))
-                {
-                    logger.Log($"[FfprobeVideoAnalyzer] [WARNING] Architecture mismatch detected. Expected aarch64, got: {fileTypeResult}");
-                }
             }
             catch (Exception ex)
             {
