@@ -1,10 +1,11 @@
 ﻿using Amazon.S3;
 using Amazon.S3.Model;
 using ImageExtractor.Application.Interfaces;
+using ImageExtractor.Infrastructure.Storage;
 using Moq;
 using System.Text;
 
-namespace ImageExtractor.Infrastructure.Storage.Tests;
+namespace ImageExtractor.Tests;
 
 public class S3VideoStorageTests
 {

@@ -83,7 +83,7 @@ public class FfmpegFrameExtractorTests
         }
     }
 
-    private string CreateFakeFfmpegScript(bool shouldFail, string errorMessage = "ffmpeg error", string? argsCapturePath = null)
+    private static string CreateFakeFfmpegScript(bool shouldFail, string errorMessage = "ffmpeg error", string? argsCapturePath = null)
     {
         var scriptPath = Path.Combine(Path.GetTempPath(), "fake-ffmpeg" + (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? ".bat" : ""));
         var captureCommand = string.Empty;

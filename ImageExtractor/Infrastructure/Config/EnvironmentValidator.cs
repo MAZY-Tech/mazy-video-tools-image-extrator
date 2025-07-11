@@ -1,15 +1,28 @@
 ﻿using ImageExtractor.Application.Interfaces;
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 
 namespace ImageExtractor.Infrastructure.Config;
 
 public class EnvironmentValidator : IEnvironmentValidator
 {
+    private readonly string? _ffmpegPath;
+    private readonly string? _ffprobePath;
+
+    public EnvironmentValidator() { }
+
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public EnvironmentValidator(string ffmpegPath, string ffprobePath)
+    {
+        _ffmpegPath = ffmpegPath;
+        _ffprobePath = ffprobePath;
+    }
+
     public void Validate()
     {
         Console.WriteLine("[LOG] Starting environment validation...");
 
-        var temp = Environment.GetEnvironmentVariable("TEMP_FOLDER") ?? "/tmp";
+        var temp = Path.GetTempPath();
         Console.WriteLine($"[LOG] Validating temporary folder path: {temp}");
         if (!Directory.Exists(temp))
         {
@@ -17,44 +30,20 @@ public class EnvironmentValidator : IEnvironmentValidator
         }
         Console.WriteLine("[LOG] Temporary folder validation passed.");
 
-        var architecture = RuntimeInformation.ProcessArchitecture;
-        string ffmpegPath;
-        string ffprobePath;
-
-        Console.WriteLine($"[LOG] Detected runtime architecture: {architecture}");
-
-        switch (architecture)
-        {
-            case Architecture.X64:
-                ffmpegPath = "/opt/bin/x86_64/ffmpeg";
-                ffprobePath = "/opt/bin/x86_64/ffprobe";
-                Console.WriteLine($"[LOG] Set binary paths for x86_64.");
-                break;
-
-            case Architecture.Arm64:
-                ffmpegPath = "/opt/bin/arm64/ffmpeg";
-                ffprobePath = "/opt/bin/arm64/ffprobe";
-                Console.WriteLine($"[LOG] Set binary paths for arm64.");
-                break;
-
-            default:
-                throw new PlatformNotSupportedException($"Unsupported architecture for validation: {architecture}");
-        }
+        string ffmpegPath = _ffmpegPath ?? GetPathForArch("ffmpeg");
+        string ffprobePath = _ffprobePath ?? GetPathForArch("ffprobe");
 
         Console.WriteLine($"[LOG] Validating ffmpeg executable at: {ffmpegPath}");
         if (!IsExecutableAvailable(ffmpegPath))
         {
             throw new InvalidOperationException($"ffmpeg not found or is empty at the expected path: {ffmpegPath}");
         }
-        Console.WriteLine("[LOG] ffmpeg validation passed.");
-
 
         Console.WriteLine($"[LOG] Validating ffprobe executable at: {ffprobePath}");
         if (!IsExecutableAvailable(ffprobePath))
         {
             throw new InvalidOperationException($"ffprobe not found or is empty at the expected path: {ffprobePath}");
         }
-        Console.WriteLine("[LOG] ffprobe validation passed.");
 
         Console.WriteLine("[LOG] Environment validation completed successfully.");
     }
@@ -68,4 +57,17 @@ public class EnvironmentValidator : IEnvironmentValidator
     {
         return File.Exists(path) && new FileInfo(path).Length > 0;
     }
+
+    private static string GetPathForArch(string binaryName)
+    {
+        var architecture = RuntimeInformation.ProcessArchitecture;
+        Console.WriteLine($"[LOG] Detected runtime architecture: {architecture}");
+
+        return architecture switch
+        {
+            Architecture.X64 => $"/opt/bin/x86_64/{binaryName}",
+            _ => throw new PlatformNotSupportedException($"Unsupported architecture for validation: {architecture}")
+        };
+    }
+
 }
