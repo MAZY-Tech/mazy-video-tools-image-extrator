@@ -1,9 +1,9 @@
 ﻿using ImageExtractor.Application.Interfaces;
-using ImageExtractor.Domain;
+using ImageExtractor.Infrastructure.VideoProcessing;
 using Moq;
 using System.Runtime.InteropServices;
 
-namespace ImageExtractor.Infrastructure.VideoProcessing.Tests;
+namespace ImageExtractor.Tests;
 
 public class FfprobeVideoAnalyzerTests
 {
@@ -53,15 +53,21 @@ public class FfprobeVideoAnalyzerTests
     }
 
     [Fact]
-    public async Task AnalyzeAsync_ShouldThrowFileNotFoundException_WhenBinaryDoesNotExist()
+    public async Task AnalyzeAsync_ShouldThrowCorrectException_WhenBinaryDoesNotExist()
     {
-        var invalidPath = Path.Combine(Path.GetTempPath(), "nonexistent-ffprobe");
-        var analyzer = new FfprobeVideoAnalyzer(invalidPath);
-        var dummyVideoPath = "/path/to/video.mp4";
+        var nonExistentPath = Path.Combine(Path.GetTempPath(), "nonexistent-ffprobe");
+        var analyzer = new FfprobeVideoAnalyzer(nonExistentPath);
+        var dummyVideoPath = "dummy.mp4";
 
-        await Assert.ThrowsAsync<FileNotFoundException>(
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
             () => analyzer.AnalyzeAsync(dummyVideoPath, _mockLogger.Object)
         );
+
+        Assert.Contains("Failed to analyze video", exception.Message);
+
+        Assert.NotNull(exception.InnerException);
+
+        Assert.IsType<FileNotFoundException>(exception.InnerException);
     }
 
     [Fact]
@@ -154,13 +160,10 @@ public class FfprobeVideoAnalyzerTests
 
             string redirect = toStdError ? "1>&2" : "";
 
-            // Using a temp file is more reliable than 'echo' for multi-line/special characters on Windows.
-            // The script self-cleans the temp file.
             scriptContent = $"@echo off\r\n(type \"{tempOutputPath}\") {redirect}\r\ndel \"{tempOutputPath}\"\r\nexit /b {exitCode}";
         }
         else
         {
-            // A 'here document' is the most robust method for Unix-like systems.
             string redirect = toStdError ? "1>&2" : "";
             scriptContent = $"""
             #!/bin/sh

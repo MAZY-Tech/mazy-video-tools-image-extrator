@@ -7,31 +7,31 @@ using System.Text.Json;
 
 namespace ImageExtractor.Infrastructure.VideoProcessing;
 
-public class FfprobeVideoAnalyzer(string ffprobePath) : IVideoAnalyzer
+public class FfprobeVideoAnalyzer(string ffprobePath, int timeoutMs = 300000) : IVideoAnalyzer
 {
     public async Task<VideoMetadata> AnalyzeAsync(string videoPath, IAppLogger logger)
     {
         logger.Log($"[FfprobeVideoAnalyzer] Starting analysis for video: {videoPath}");
-
-        // Validate binary before attempting to use it
-        await ValidateBinaryAsync(ffprobePath, logger);
-
-        var args = $"-v quiet -print_format json -show_format -show_streams \"{videoPath}\"";
-        logger.Log($"[FfprobeVideoAnalyzer] Executing command: '{ffprobePath} {args}'");
-
-        var psi = new ProcessStartInfo
-        {
-            FileName = ffprobePath,
-            Arguments = args,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
         Process? process = null;
+
         try
         {
+            // Validate binary before attempting to use it
+            await ValidateBinaryAsync(ffprobePath, logger);
+
+            var args = $"-v quiet -print_format json -show_format -show_streams \"{videoPath}\"";
+            logger.Log($"[FfprobeVideoAnalyzer] Executing command: '{ffprobePath} {args}'");
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = ffprobePath,
+                Arguments = args,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
             process = Process.Start(psi);
             if (process == null)
             {
@@ -44,7 +44,7 @@ public class FfprobeVideoAnalyzer(string ffprobePath) : IVideoAnalyzer
             var errorTask = process.StandardError.ReadToEndAsync();
 
             // Add timeout to prevent hanging
-            var timeoutTask = Task.Delay(TimeSpan.FromMinutes(5));
+            var timeoutTask = Task.Delay(TimeSpan.FromMilliseconds(timeoutMs));
             var processTask = process.WaitForExitAsync();
 
             var completedTask = await Task.WhenAny(processTask, timeoutTask);
@@ -89,7 +89,7 @@ public class FfprobeVideoAnalyzer(string ffprobePath) : IVideoAnalyzer
         }
     }
 
-    private async Task ValidateBinaryAsync(string binaryPath, IAppLogger logger)
+    private static async Task ValidateBinaryAsync(string binaryPath, IAppLogger logger)
     {
         logger.Log($"[FfprobeVideoAnalyzer] Validating binary: {binaryPath}");
 
@@ -138,7 +138,7 @@ public class FfprobeVideoAnalyzer(string ffprobePath) : IVideoAnalyzer
         }
     }
 
-    private async Task<string> RunCommandAsync(string command, string arguments, IAppLogger logger)
+    private static async Task<string> RunCommandAsync(string command, string arguments, IAppLogger logger)
     {
         var psi = new ProcessStartInfo
         {
@@ -148,20 +148,23 @@ public class FfprobeVideoAnalyzer(string ffprobePath) : IVideoAnalyzer
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true
+
         };
 
-        using var process = Process.Start(psi);
-        if (process == null)
-            throw new InvalidOperationException($"Failed to start process: {command}");
+        logger.Log($"[FfprobeVideoAnalyzer] Running command: {command} {arguments}");
+
+        using var process = Process.Start(psi) ?? throw new InvalidOperationException($"Failed to start process: {command}");
 
         await process.WaitForExitAsync();
+
         var output = await process.StandardOutput.ReadToEndAsync();
+
         var error = await process.StandardError.ReadToEndAsync();
 
         return process.ExitCode == 0 ? output.Trim() : error.Trim();
     }
 
-    private VideoMetadata ParseFFProbeOutput(string output, IAppLogger logger)
+    private static VideoMetadata ParseFFProbeOutput(string output, IAppLogger logger)
     {
         try
         {
@@ -189,17 +192,30 @@ public class FfprobeVideoAnalyzer(string ffprobePath) : IVideoAnalyzer
                 throw new InvalidOperationException($"Could not parse duration: {durationString}");
             }
 
-            var videoStream = root.GetProperty("streams").EnumerateArray()
-                .FirstOrDefault(s => s.GetProperty("codec_type").GetString() == "video");
+            if (!root.TryGetProperty("streams", out var streamsElement))
+            {
+                logger.Log($"[FfprobeVideoAnalyzer] [ERROR] ffprobe output missing 'streams' property, element: {streamsElement}");
+                throw new InvalidOperationException("ffprobe output missing 'streams' property");
+            }
+
+            var videoStream = streamsElement.EnumerateArray()
+                .FirstOrDefault(s => s.TryGetProperty("codec_type", out var codecType) && codecType.GetString() == "video");
 
             int nbFrames = 0;
-            if (videoStream.TryGetProperty("nb_frames", out var nbFramesProp))
+            if (videoStream.ValueKind != JsonValueKind.Undefined)
             {
-                var nbFramesString = nbFramesProp.GetString();
-                if (!string.IsNullOrWhiteSpace(nbFramesString))
+                if (videoStream.TryGetProperty("nb_frames", out var nbFramesProp))
                 {
-                    int.TryParse(nbFramesString, out nbFrames);
+                    var nbFramesString = nbFramesProp.GetString();
+                    if (!string.IsNullOrWhiteSpace(nbFramesString))
+                    {
+                        _ = int.TryParse(nbFramesString, out nbFrames);
+                    }
                 }
+            }
+            else
+            {
+                logger.Log("[FfprobeVideoAnalyzer] No video stream found in the output. FrameCount will be 0.");
             }
 
             logger.Log($"[FfprobeVideoAnalyzer] Parsed video metadata - Duration: {duration}s, Frames: {nbFrames}");

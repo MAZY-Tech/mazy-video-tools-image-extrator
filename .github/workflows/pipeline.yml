@@ -138,6 +138,9 @@ jobs:
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ vars.AWS_REGION }}
 
+      - name: Set execute permission for binaries
+        run: chmod +x ffmpeg-layer/bin/x86_64/*
+
       - name: Build SAM Application
         run: sam build --use-container --mount-with WRITE
 
