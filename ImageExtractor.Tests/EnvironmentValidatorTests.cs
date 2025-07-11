@@ -11,7 +11,6 @@ public class EnvironmentValidatorTests
 
     public EnvironmentValidatorTests()
     {
-        // Setup simplificado: não precisamos mais gerenciar um TEMP_FOLDER customizado.
         _testDir = Path.Combine(Path.GetTempPath(), "validator_tests_" + Guid.NewGuid());
         Directory.CreateDirectory(_testDir);
 
@@ -51,11 +50,10 @@ public class EnvironmentValidatorTests
         Assert.Contains("ffprobe not found", exception.Message);
     }
 
-    // NOVO TESTE: Cobre o cenário de arquivo existente, mas vazio.
     [Fact]
     public void Validate_Throws_When_Ffmpeg_File_Is_Empty()
     {
-        File.WriteAllText(_dummyFfmpegPath, string.Empty); // Arquivo vazio
+        File.WriteAllText(_dummyFfmpegPath, string.Empty); 
         File.WriteAllText(_dummyFfprobePath, "content");
         var validator = new EnvironmentValidator(_dummyFfmpegPath, _dummyFfprobePath);
 
@@ -63,23 +61,18 @@ public class EnvironmentValidatorTests
         Assert.Contains("ffmpeg not found or is empty", exception.Message);
     }
 
-    // NOVO TESTE: Cobre a lógica de GetPathForArch.
     [Fact]
     public void Validate_Calls_GetPathForArch_When_No_Paths_Are_Provided()
     {
-        // Usa o construtor padrão para forçar a chamada de GetPathForArch.
         var validator = new EnvironmentValidator();
 
-        // Este teste agora cobre ambas as branches do 'switch' em GetPathForArch.
         if (RuntimeInformation.ProcessArchitecture == Architecture.X64)
         {
-            // Em X64, esperamos falhar porque /opt/bin/x86_64/ffmpeg não existe.
             var exception = Assert.Throws<InvalidOperationException>(() => validator.Validate());
             Assert.Contains("/opt/bin/x86_64/ffmpeg", exception.Message);
         }
         else
         {
-            // Em qualquer outra arquitetura, esperamos a exceção de plataforma não suportada.
             Assert.Throws<PlatformNotSupportedException>(() => validator.Validate());
         }
     }
